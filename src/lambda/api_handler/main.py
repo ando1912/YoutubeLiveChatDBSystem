@@ -10,6 +10,8 @@ REST APIエンドポイントを提供するLambda関数
 import json
 import boto3
 import os
+import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError
@@ -28,6 +30,94 @@ CHANNELS_TABLE = os.environ.get('CHANNELS_TABLE', 'dev-Channels')
 LIVESTREAMS_TABLE = os.environ.get('LIVESTREAMS_TABLE', 'dev-LiveStreams')
 COMMENTS_TABLE = os.environ.get('COMMENTS_TABLE', 'dev-Comments')
 YOUTUBE_API_KEY_PARAM = os.environ.get('YOUTUBE_API_KEY_PARAM', '/dev/youtube-chat-collector/youtube-api-key')
+
+def get_youtube_api_key() -> Optional[str]:
+    """
+    SSMパラメータストアからYouTube API Keyを取得
+    
+    Returns:
+        YouTube API Key または None
+    """
+    try:
+        response = ssm.get_parameter(
+            Name=YOUTUBE_API_KEY_PARAM,
+            WithDecryption=True
+        )
+        return response['Parameter']['Value']
+    except ClientError as e:
+        logger.error(f"Failed to get YouTube API key: {str(e)}")
+        return None
+
+def get_channel_info_from_youtube_api(channel_id: str) -> Optional[Dict[str, Any]]:
+    """
+    YouTube Data APIからチャンネル情報を取得
+    
+    Args:
+        channel_id: YouTubeチャンネルID
+        
+    Returns:
+        チャンネル情報辞書 または None
+    """
+    try:
+        # YouTube API Keyを取得
+        api_key = get_youtube_api_key()
+        if not api_key:
+            logger.error("YouTube API key not available")
+            return None
+        
+        # YouTube Data API v3でチャンネル情報を取得
+        url = "https://www.googleapis.com/youtube/v3/channels"
+        params = {
+            'part': 'snippet,statistics,brandingSettings',
+            'id': channel_id,
+            'key': api_key
+        }
+        
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if not data.get('items'):
+            logger.warning(f"Channel not found: {channel_id}")
+            return None
+            
+        channel_data = data['items'][0]
+        snippet = channel_data.get('snippet', {})
+        statistics = channel_data.get('statistics', {})
+        branding = channel_data.get('brandingSettings', {})
+        
+        # サムネイル情報を取得（複数サイズ）
+        thumbnails = snippet.get('thumbnails', {})
+        thumbnail_info = {}
+        for size in ['default', 'medium', 'high']:
+            if size in thumbnails:
+                thumbnail_info[f'thumbnail_{size}'] = thumbnails[size].get('url', '')
+        
+        # チャンネル情報を構築
+        channel_info = {
+            'channel_name': snippet.get('title', ''),
+            'description': snippet.get('description', ''),
+            'custom_url': snippet.get('customUrl', ''),
+            'published_at': snippet.get('publishedAt', ''),
+            'country': snippet.get('country', ''),
+            'default_language': snippet.get('defaultLanguage', ''),
+            'subscriber_count': statistics.get('subscriberCount', '0'),
+            'video_count': statistics.get('videoCount', '0'),
+            'view_count': statistics.get('viewCount', '0'),
+            'api_retrieved_at': datetime.now(timezone.utc).isoformat(),
+            **thumbnail_info
+        }
+        
+        logger.info(f"Retrieved channel info from YouTube API: {channel_id} - {channel_info['channel_name']}")
+        return channel_info
+        
+    except requests.RequestException as e:
+        logger.error(f"YouTube API request failed for channel {channel_id}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting channel info from YouTube API: {str(e)}")
+        return None
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -108,7 +198,7 @@ def get_channels(query_params: Dict[str, str]) -> Dict[str, Any]:
 
 def create_channel(body: Dict[str, Any]) -> Dict[str, Any]:
     """
-    新しいチャンネルを作成
+    新しいチャンネルを作成（YouTube APIから情報を自動取得）
     
     Args:
         body: リクエストボディ
@@ -119,11 +209,10 @@ def create_channel(body: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # 必須フィールドの検証
         channel_id = body.get('channel_id')
-        channel_name = body.get('channel_name')
         
-        if not channel_id or not channel_name:
+        if not channel_id:
             return create_response(400, {
-                'error': 'channel_id and channel_name are required'
+                'error': 'channel_id is required'
             })
         
         table = dynamodb.Table(CHANNELS_TABLE)
@@ -136,28 +225,62 @@ def create_channel(body: Dict[str, Any]) -> Dict[str, Any]:
         except ClientError:
             pass
         
-        # 新しいチャンネルを作成
+        # YouTube APIからチャンネル情報を取得
+        youtube_info = get_channel_info_from_youtube_api(channel_id)
+        
+        # 基本的なチャンネル情報を構築
         now = datetime.now(timezone.utc)
         channel_item = {
             'channel_id': channel_id,
-            'channel_name': channel_name,
-            'description': body.get('description', ''),
             'is_active': body.get('is_active', True),
             'created_at': now.isoformat(),
             'updated_at': now.isoformat()
         }
         
+        # YouTube APIから取得した情報をマージ
+        if youtube_info:
+            # 手動指定があれば優先、なければAPIから取得した情報を使用
+            channel_item.update({
+                'channel_name': body.get('channel_name', youtube_info.get('channel_name', '')),
+                'description': body.get('description', youtube_info.get('description', '')),
+                'custom_url': youtube_info.get('custom_url', ''),
+                'published_at': youtube_info.get('published_at', ''),
+                'country': youtube_info.get('country', ''),
+                'default_language': youtube_info.get('default_language', ''),
+                'subscriber_count': youtube_info.get('subscriber_count', '0'),
+                'video_count': youtube_info.get('video_count', '0'),
+                'view_count': youtube_info.get('view_count', '0'),
+                'thumbnail_default': youtube_info.get('thumbnail_default', ''),
+                'thumbnail_medium': youtube_info.get('thumbnail_medium', ''),
+                'thumbnail_high': youtube_info.get('thumbnail_high', ''),
+                'api_retrieved_at': youtube_info.get('api_retrieved_at', '')
+            })
+        else:
+            # APIから取得できない場合は手動指定の情報を使用
+            channel_item.update({
+                'channel_name': body.get('channel_name', ''),
+                'description': body.get('description', ''),
+                'api_retrieved_at': '',
+                'api_error': 'Failed to retrieve from YouTube API'
+            })
+            logger.warning(f"Could not retrieve YouTube API info for channel: {channel_id}")
+        
+        # DynamoDBに保存
         table.put_item(Item=channel_item)
         
-        logger.info(f"Created channel: {channel_id}")
+        logger.info(f"Created channel: {channel_id} - {channel_item.get('channel_name', 'Unknown')}")
         return create_response(201, {
             'message': 'Channel created successfully',
-            'channel': channel_item
+            'channel': channel_item,
+            'api_info_retrieved': youtube_info is not None
         })
         
     except ClientError as e:
         logger.error(f"DynamoDB error in create_channel: {str(e)}")
         return create_response(500, {'error': 'Database error'})
+    except Exception as e:
+        logger.error(f"Unexpected error in create_channel: {str(e)}")
+        return create_response(500, {'error': 'Internal server error'})
 
 def get_streams(query_params: Dict[str, str]) -> Dict[str, Any]:
     """

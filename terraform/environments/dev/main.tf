@@ -86,6 +86,15 @@ module "api" {
   api_handler_lambda = module.compute.api_handler_lambda
 }
 
+# EventBridge (定期実行)
+module "eventbridge" {
+  source = "../../modules/eventbridge"
+  
+  environment            = var.environment
+  lambda_function_arns   = module.compute.lambda_function_arns
+  lambda_function_names  = module.compute.lambda_function_names
+}
+
 # フロントエンド
 module "frontend" {
   source = "../../modules/frontend"

@@ -27,9 +27,10 @@ sqs = boto3.client('sqs')
 ssm = boto3.client('ssm')
 
 # 環境変数
-LIVESTREAMS_TABLE = os.environ.get('LIVESTREAMS_TABLE', 'dev-LiveStreams')
-TASK_STATUS_TABLE = os.environ.get('TASK_STATUS_TABLE', 'dev-TaskStatus')
-TASK_CONTROL_QUEUE_URL = os.environ.get('TASK_CONTROL_QUEUE_URL')
+LIVESTREAMS_TABLE = os.environ.get('DYNAMODB_TABLE_LIVESTREAMS', 'dev-LiveStreams')
+TASK_STATUS_TABLE = os.environ.get('DYNAMODB_TABLE_TASK_STATUS', 'dev-TaskStatus')
+TASK_CONTROL_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
+ECS_CLUSTER_NAME = os.environ.get('ECS_CLUSTER_NAME', 'dev-youtube-comment-collector')
 YOUTUBE_API_KEY_PARAM = os.environ.get('YOUTUBE_API_KEY_PARAM', '/dev/youtube-chat-collector/youtube-api-key')
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -85,13 +86,20 @@ def get_streams_to_check() -> List[Dict[str, Any]]:
     try:
         table = dynamodb.Table(LIVESTREAMS_TABLE)
         
-        # 24時間以内に作成された、まだ終了していないライブ配信を取得
+        # 24時間以内に作成された、アクティブなライブ配信を取得
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
         
         response = table.scan(
-            FilterExpression='created_at > :cutoff AND attribute_not_exists(ended_at)',
+            FilterExpression='created_at > :cutoff AND (#status = :live OR #status = :upcoming OR #status = :detected OR #status = :ended)',
+            ExpressionAttributeNames={
+                '#status': 'status'
+            },
             ExpressionAttributeValues={
-                ':cutoff': cutoff_time.isoformat()
+                ':cutoff': cutoff_time.isoformat(),
+                ':live': 'live',
+                ':upcoming': 'upcoming', 
+                ':detected': 'detected',
+                ':ended': 'ended'
             }
         )
         
@@ -103,13 +111,13 @@ def get_streams_to_check() -> List[Dict[str, Any]]:
 
 def check_and_update_stream_status(stream: Dict[str, Any]) -> bool:
     """
-    ライブ配信の状態をチェックして更新
+    ライブ配信の状態をチェックして更新し、必要に応じてタスクを制御
     
     Args:
         stream: ライブ配信情報
         
     Returns:
-        状態が変更された場合True
+        アクションが実行された場合True
     """
     video_id = stream['video_id']
     current_status = stream.get('status', 'detected')
@@ -123,26 +131,31 @@ def check_and_update_stream_status(stream: Dict[str, Any]) -> bool:
             return False
         
         new_status = live_status['status']
+        action_taken = False
         
-        # 状態が変更された場合のみ処理
+        # DynamoDBの状態を更新（状態が変わった場合のみ）
         if new_status != current_status:
             logger.info(f"Status change for {video_id}: {current_status} -> {new_status}")
-            
-            # DynamoDBを更新
             update_stream_status(stream, live_status)
-            
-            # 状態に応じてタスクを制御
-            if new_status == 'live' and current_status in ['detected', 'upcoming']:
-                # ライブ配信開始 - コメント収集タスクを開始
-                send_task_control_message('start_collection', video_id, stream['channel_id'])
-                
-            elif new_status == 'ended' and current_status == 'live':
-                # ライブ配信終了 - コメント収集タスクを停止
-                send_task_control_message('stop_collection', video_id, stream['channel_id'])
-            
-            return True
+            action_taken = True
         
-        return False
+        # タスク実行状態をチェックして制御
+        if new_status == 'live':
+            # ライブ配信中の場合、タスクが実行されているかチェック
+            if not is_task_running(video_id):
+                logger.info(f"Starting collection task for live stream {video_id}")
+                send_task_control_message('start_collection', video_id, stream['channel_id'])
+                action_taken = True
+            else:
+                logger.debug(f"Collection task already running for {video_id}")
+                
+        elif new_status == 'ended' and current_status == 'live':
+            # ライブ配信終了の場合、タスクを停止
+            logger.info(f"Stopping collection task for ended stream {video_id}")
+            send_task_control_message('stop_collection', video_id, stream['channel_id'])
+            action_taken = True
+        
+        return action_taken
         
     except Exception as e:
         logger.error(f"Error checking status for stream {video_id}: {str(e)}")
@@ -295,6 +308,123 @@ def update_stream_status(stream: Dict[str, Any], live_status: Dict[str, Any]) ->
     except ClientError as e:
         logger.error(f"Error updating stream status {stream['video_id']}: {str(e)}")
         raise
+
+def is_task_running(video_id: str) -> bool:
+    """
+    指定された動画IDのコメント収集タスクが実行中かチェック
+    
+    Args:
+        video_id: YouTube動画ID
+        
+    Returns:
+        タスクが実行中の場合True
+    """
+    try:
+        task_status_table = dynamodb.Table(TASK_STATUS_TABLE)
+        
+        response = task_status_table.get_item(
+            Key={'video_id': video_id}
+        )
+        
+        if 'Item' not in response:
+            return False
+        
+        task_status = response['Item']
+        status = task_status.get('status', 'stopped')
+        
+        # running状態のタスクがある場合はTrue
+        if status == 'running':
+            # タスクが実際に実行中かECS APIで確認
+            task_arn = task_status.get('task_arn')
+            if task_arn and is_ecs_task_actually_running(task_arn):
+                return True
+            else:
+                # タスクが実際には停止している場合、ステータスを更新
+                logger.warning(f"Task {task_arn} for {video_id} is marked as running but not actually running")
+                update_task_status(video_id, 'stopped')
+                return False
+        
+        return False
+        
+    except ClientError as e:
+        logger.error(f"Error checking task status for {video_id}: {str(e)}")
+        return False
+
+def is_ecs_task_actually_running(task_arn: str) -> bool:
+    """
+    ECS APIでタスクが実際に実行中かチェック
+    
+    Args:
+        task_arn: ECSタスクARN
+        
+    Returns:
+        タスクが実行中の場合True
+    """
+    try:
+        ecs = boto3.client('ecs')
+        
+        # クラスター名を環境変数から取得
+        cluster_name = os.environ.get('ECS_CLUSTER_NAME', 'dev-youtube-comment-collector')
+        
+        response = ecs.describe_tasks(
+            cluster=cluster_name,
+            tasks=[task_arn]
+        )
+        
+        if not response.get('tasks'):
+            return False
+        
+        task = response['tasks'][0]
+        last_status = task.get('lastStatus', '')
+        
+        # RUNNING状態の場合のみTrue
+        return last_status == 'RUNNING'
+        
+    except Exception as e:
+        logger.error(f"Error checking ECS task {task_arn}: {str(e)}")
+        return False
+
+def update_task_status(video_id: str, status: str, task_arn: str = None) -> None:
+    """
+    TaskStatusテーブルを更新
+    
+    Args:
+        video_id: YouTube動画ID
+        status: タスク状態
+        task_arn: ECSタスクARN（オプション）
+    """
+    try:
+        task_status_table = dynamodb.Table(TASK_STATUS_TABLE)
+        
+        update_expression = "SET #status = :status, updated_at = :updated_at"
+        expression_attribute_names = {'#status': 'status'}
+        expression_attribute_values = {
+            ':status': status,
+            ':updated_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        if task_arn:
+            update_expression += ", task_arn = :task_arn"
+            expression_attribute_values[':task_arn'] = task_arn
+        
+        if status == 'stopped':
+            update_expression += ", stopped_at = :stopped_at"
+            expression_attribute_values[':stopped_at'] = datetime.now(timezone.utc).isoformat()
+        elif status == 'running':
+            update_expression += ", started_at = :started_at"
+            expression_attribute_values[':started_at'] = datetime.now(timezone.utc).isoformat()
+        
+        task_status_table.update_item(
+            Key={'video_id': video_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeNames=expression_attribute_names,
+            ExpressionAttributeValues=expression_attribute_values
+        )
+        
+        logger.info(f"Updated task status for {video_id}: {status}")
+        
+    except ClientError as e:
+        logger.error(f"Error updating task status for {video_id}: {str(e)}")
 
 def send_task_control_message(action: str, video_id: str, channel_id: str) -> None:
     """
