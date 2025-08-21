@@ -1,0 +1,25 @@
+# YouTube Live Chat Collector - Development Environment Values
+# このファイルをterraform.tfvarsにコピーして値を設定してください
+
+aws_region   = "ap-northeast-1"
+environment  = "dev"
+
+# ネットワーク設定
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+availability_zones   = ["ap-northeast-1a", "ap-northeast-1c"]
+
+# YouTube API設定
+youtube_api_key = "YOUR_YOUTUBE_API_KEY_HERE"
+
+# セキュリティ設定
+allowed_ip_addresses = [
+  "YOUR_IP_ADDRESS/32"  # 自分のIPアドレスに変更
+]
+
+# 共通タグ設定
+common_tags = {
+  User    = "ryoga.ando@asia-quest.jp"
+  Project = "Learning"
+  SysName = "youtube-live-chat-collector"
+}
