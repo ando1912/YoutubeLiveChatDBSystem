@@ -97,24 +97,49 @@ class CommentCollector:
         
         try:
             while self.chat.is_alive():
-                # コメントを取得
-                for comment in self.chat.get().sync():
-                    comment_data = self.format_comment(comment)
-                    comment_batch.append(comment_data)
+                # コメントを取得 - 正しいpytchat使用方法
+                try:
+                    # pytchatの正しい使用方法: get()の結果を直接イテレート
+                    chat_data = self.chat.get()
                     
-                    logger.info(f"Comment from {comment.author.name}: {comment.message[:50]}...")
+                    # chat_dataがitemsを持つ場合
+                    if hasattr(chat_data, 'items'):
+                        for comment in chat_data.items:
+                            comment_data = self.format_comment(comment)
+                            comment_batch.append(comment_data)
+                            
+                            logger.info(f"Comment from {comment.author.name}: {comment.message[:50]}...")
+                            
+                            # バッチサイズに達したら保存
+                            if len(comment_batch) >= BATCH_SIZE:
+                                self.save_comments_batch(comment_batch)
+                                comment_batch = []
                     
-                    # バッチサイズに達したら保存
-                    if len(comment_batch) >= BATCH_SIZE:
-                        self.save_comments_batch(comment_batch)
-                        comment_batch = []
-                
-                # 定期的なヘルスチェック
-                if time.time() - self.last_health_check > HEALTH_CHECK_INTERVAL:
-                    self.perform_health_check()
-                
-                # 短い待機
-                time.sleep(1)
+                    # chat_dataが直接イテレート可能な場合
+                    elif hasattr(chat_data, '__iter__'):
+                        for comment in chat_data:
+                            comment_data = self.format_comment(comment)
+                            comment_batch.append(comment_data)
+                            
+                            logger.info(f"Comment from {comment.author.name}: {comment.message[:50]}...")
+                            
+                            # バッチサイズに達したら保存
+                            if len(comment_batch) >= BATCH_SIZE:
+                                self.save_comments_batch(comment_batch)
+                                comment_batch = []
+                    
+                    # 定期的なヘルスチェック
+                    if time.time() - self.last_health_check > HEALTH_CHECK_INTERVAL:
+                        self.perform_health_check()
+                    
+                    # 短い待機
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    logger.warning(f"Error getting comments: {str(e)}")
+                    # コメント取得エラーは継続
+                    time.sleep(2)
+                    continue
             
             # 残りのコメントを保存
             if comment_batch:
@@ -139,13 +164,13 @@ class CommentCollector:
             'video_id': self.video_id,
             'channel_id': self.channel_id,
             'author_name': comment.author.name,
-            'author_channel_id': comment.author.channelId,
+            'author_channel_id': getattr(comment.author, 'channelId', 'unknown'),
             'message': comment.message,
             'timestamp': timestamp.isoformat(),
-            'datetime': comment.datetime,
-            'is_owner': comment.author.isOwner,
-            'is_moderator': comment.author.isModerator,
-            'is_verified': comment.author.isVerified,
+            'datetime': getattr(comment, 'datetime', timestamp.isoformat()),
+            'is_owner': getattr(comment.author, 'isOwner', False),
+            'is_moderator': getattr(comment.author, 'isModerator', False),
+            'is_verified': getattr(comment.author, 'isVerified', False),
             'created_at': timestamp.isoformat()
         }
     
@@ -189,15 +214,29 @@ class CommentCollector:
             elif status in ["completed", "failed"]:
                 update_data['finished_at'] = datetime.now(timezone.utc).isoformat()
             
+            # DynamoDBの更新式を修正
+            update_expression = 'SET #status = :status, updated_at = :updated_at, comment_count = :comment_count'
+            expression_attribute_names = {'#status': 'status'}
+            expression_attribute_values = {
+                ':status': status,
+                ':updated_at': update_data['updated_at'],
+                ':comment_count': self.comment_count
+            }
+            
+            # 追加フィールドがある場合
+            if 'collecting_since' in update_data:
+                update_expression += ', collecting_since = :collecting_since'
+                expression_attribute_values[':collecting_since'] = update_data['collecting_since']
+            
+            if 'finished_at' in update_data:
+                update_expression += ', finished_at = :finished_at'
+                expression_attribute_values[':finished_at'] = update_data['finished_at']
+            
             self.taskstatus_table.update_item(
                 Key={'video_id': self.video_id},
-                UpdateExpression='SET #status = :status, updated_at = :updated_at, comment_count = :comment_count',
-                ExpressionAttributeNames={'#status': 'status'},
-                ExpressionAttributeValues={
-                    ':status': status,
-                    ':updated_at': update_data['updated_at'],
-                    ':comment_count': self.comment_count
-                }
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values
             )
             
             logger.info(f"Updated task status to: {status}")

@@ -1,0 +1,19 @@
+# YouTube Comment Collector - Minimal Test Version
+FROM python:3.9-slim
+
+# 作業ディレクトリ設定
+WORKDIR /app
+
+# 最小限の依存関係のみインストール
+RUN pip install --no-cache-dir boto3
+
+# 最小構成版アプリケーションコードをコピー
+COPY main_minimal.py main.py
+
+# 非rootユーザーを作成
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /app
+USER app
+
+# アプリケーション実行
+CMD ["python", "main.py"]

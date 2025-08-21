@@ -297,7 +297,8 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
-          "dynamodb:GetItem"
+          "dynamodb:GetItem",
+          "dynamodb:BatchWriteItem"
         ]
         Resource = [
           var.dynamodb_table_arns.comments,
