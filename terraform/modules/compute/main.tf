@@ -80,7 +80,10 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Action = [
           "ecs:RunTask",
           "ecs:StopTask",
-          "ecs:DescribeTasks"
+          "ecs:DescribeTasks",
+          "ecs:TagResource",
+          "ecs:ListTasks",
+          "ecs:DescribeTaskDefinition"
         ]
         Resource = "*"
       },
