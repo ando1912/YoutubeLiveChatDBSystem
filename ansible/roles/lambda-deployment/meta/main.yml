@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: YouTube Live Chat Collector Project
+  description: Deploy Lambda functions for YouTube Live Chat Collector
+  company: Learning Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Amazon
+      versions:
+        - all
+  galaxy_tags:
+    - aws
+    - lambda
+    - deployment
+
+dependencies: []

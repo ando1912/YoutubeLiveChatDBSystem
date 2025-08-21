@@ -1,0 +1,19 @@
+---
+# Stream Status Checker Lambda関数単体デプロイ用プレイブック
+- name: Deploy Stream Status Checker Lambda
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    aws_region: "ap-northeast-1"
+    env_name: "dev"
+    
+  tasks:
+    - name: Deploy Stream Status Checker Lambda
+      include_role:
+        name: lambda-deployment
+      vars:
+        lambda_name: "stream-status-checker-lambda"
+        lambda_source_dir: "../../src/lambda/stream_status_checker"
+        lambda_environment: "{{ env_name }}"

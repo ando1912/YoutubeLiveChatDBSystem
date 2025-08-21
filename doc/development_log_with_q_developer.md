@@ -987,9 +987,55 @@ Lambda関数:
 
 ---
 
+## Phase 5: Lambda関数デプロイとテスト実行 (2025-08-21 12:49 - 13:31)
+
+### 🚀 **Ansibleを使用したLambda関数デプロイ**
+
+#### **依存環境のセットアップ**
+- pip、boto3、build-essentialのインストール
+- Ansibleロール `lambda-deployment` の作成
+- 依存関係を含むLambda関数パッケージング
+
+#### **Lambda関数の実装とデプロイ**
+1. **API Handler Lambda** - REST API処理 ✅ デプロイ・テスト完了
+2. **RSS Monitor Lambda** - YouTube RSS監視 ✅ デプロイ・テスト完了  
+3. **Stream Status Checker Lambda** - 配信状態チェック ✅ デプロイ・テスト完了
+4. **ECS Task Launcher Lambda** - ECSタスク制御 ✅ デプロイ完了
+
+#### **YouTube API キー設定とテスト**
+- YouTube Data API v3キーの設定（SSM Parameter Store）
+- 実際のYouTubeチャンネルでの動作テスト
+
+#### **マルチチャンネル監視テスト**
+**テスト対象チャンネル:**
+1. **UCdn5BQ06XqgXoAxIhbqw5Rg** (白上フブキ) - 14件のライブストリーム検出
+2. **UCvzGlP9oQwU--Y0r9id_jnA** (大空スバル) - 9件のライブストリーム検出
+3. **UCozx5csNhCx1wsVq3SZVkBQ** (春先のどか) - 11件のライブストリーム検出
+4. **UClS3cnIUM9yzsBPQzeyX_8Q** (雨海ルカ) - 15件のライブストリーム検出
+
+#### **配信状況の3つの状態確認完了**
+- ✅ **配信予定 (upcoming)**: 春先のどかチャンネルで1件検出
+- ✅ **配信終了 (ended)**: 全チャンネルで54件検出  
+- ✅ **配信開始 (live)**: 検出準備完了（現在該当なし）
+
+#### **システム動作確認結果**
+- **監視チャンネル数**: 4チャンネル
+- **検出ライブストリーム総数**: 55件
+- **RSS Monitor**: RSSフィードから正常にライブストリーム検出
+- **Stream Status Checker**: YouTube Data API v3で正確な状態判定
+- **DynamoDB**: 詳細な配信情報を完全保存
+
+### 🛠️ **技術的成果**
+- Ansibleによる自動化されたLambda関数デプロイ
+- YouTube Data API v3との完全な連携
+- マルチチャンネル同時監視システムの実現
+- 配信状態のリアルタイム追跡機能
+
+---
+
 **作成日**: 2025-08-21  
-**最終更新**: 2025-08-21 09:01  
+**最終更新**: 2025-08-21 13:31  
 **作成者**: Amazon Q Developer との協働開発記録  
 **プロジェクト**: YouTube Live Chat Collector  
-**開発期間**: 2025-08-21 06:47 - 09:01 (3時間48分)  
-**フェーズ**: インフラ基盤構築完了
+**開発期間**: 2025-08-21 06:47 - 13:31 (6時間44分)  
+**フェーズ**: Lambda関数デプロイ・テスト完了

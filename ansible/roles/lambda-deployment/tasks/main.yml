@@ -1,0 +1,55 @@
+---
+# Lambda関数デプロイタスク
+- name: Create temporary directory for Lambda package
+  tempfile:
+    state: directory
+    suffix: lambda
+  register: temp_dir
+
+- name: Copy Lambda source files
+  copy:
+    src: "{{ lambda_source_dir }}/"
+    dest: "{{ temp_dir.path }}/"
+    mode: '0644'
+
+- name: Check if requirements.txt exists
+  stat:
+    path: "{{ temp_dir.path }}/requirements.txt"
+  register: requirements_file
+
+- name: Display requirements info
+  debug:
+    msg: "Requirements file found: {{ requirements_file.stat.exists }}"
+
+- name: Install Python dependencies
+  shell: |
+    cd {{ temp_dir.path }}
+    python3 -m pip install -r requirements.txt -t . --break-system-packages
+  when: requirements_file.stat.exists
+
+- name: Create Lambda deployment package
+  archive:
+    path: "{{ temp_dir.path }}/*"
+    dest: "{{ temp_dir.path }}/{{ lambda_name }}.zip"
+    format: zip
+
+- name: Deploy Lambda function
+  amazon.aws.lambda:
+    name: "{{ lambda_environment }}-{{ lambda_name }}"
+    zip_file: "{{ temp_dir.path }}/{{ lambda_name }}.zip"
+    runtime: python3.9
+    handler: main.lambda_handler
+    role: "arn:aws:iam::209547544773:role/dev-lambda-execution-role"
+    region: "{{ aws_region }}"
+    state: present
+  register: lambda_deploy_result
+
+- name: Clean up temporary directory
+  file:
+    path: "{{ temp_dir.path }}"
+    state: absent
+
+- name: Display deployment result
+  debug:
+    msg: "Lambda function {{ lambda_environment }}-{{ lambda_name }} deployed successfully"
+  when: lambda_deploy_result is succeeded
