@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Amazon Q Developer
+  description: ECS Container Build and Deployment Role
+  company: AWS
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - docker
+    - ecs
+    - aws
+    - container
+
+dependencies: []

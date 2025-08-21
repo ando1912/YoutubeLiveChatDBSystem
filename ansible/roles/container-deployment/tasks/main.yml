@@ -1,0 +1,171 @@
+---
+# Container Deployment Tasks
+
+- name: Check if Docker is installed
+  command: docker --version
+  register: docker_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Docker if not present
+  block:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      become: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+      become: yes
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      become: yes
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+      become: yes
+
+    - name: Install Docker
+      apt:
+        name: docker-ce
+        state: present
+      become: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      become: yes
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      become: yes
+
+  when: docker_check.rc != 0
+
+- name: Check if AWS CLI is installed
+  command: aws --version
+  register: aws_cli_check
+  failed_when: false
+  changed_when: false
+
+- name: Install AWS CLI if not present
+  pip:
+    name: awscli
+    state: present
+    break_system_packages: yes
+  become: yes
+  when: aws_cli_check.rc != 0
+
+- name: Check container source directory
+  stat:
+    path: "{{ container_source_dir }}"
+  register: source_dir_check
+
+- name: Fail if source directory doesn't exist
+  fail:
+    msg: "Container source directory {{ container_source_dir }} does not exist"
+  when: not source_dir_check.stat.exists
+
+- name: Check if Dockerfile exists
+  stat:
+    path: "{{ build_context }}/Dockerfile"
+  register: dockerfile_check
+
+- name: Fail if Dockerfile doesn't exist
+  fail:
+    msg: "Dockerfile not found at {{ build_context }}/Dockerfile"
+  when: not dockerfile_check.stat.exists
+
+- name: Set ECR repository variables
+  set_fact:
+    ecr_repository_name: "{{ container_environment }}-{{ container_name }}"
+    ecr_repository_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ container_environment }}-{{ container_name }}"
+
+- name: Get ECR login token
+  shell: |
+    aws ecr get-login-password --region {{ aws_region }} --no-verify-ssl
+  register: ecr_token
+  no_log: true
+
+- name: Login to ECR
+  docker_login:
+    registry_url: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com"
+    username: AWS
+    password: "{{ ecr_token.stdout }}"
+    reauthorize: yes
+
+- name: Build Docker image
+  docker_image:
+    name: "{{ container_name }}"
+    tag: "{{ image_tag }}"
+    build:
+      path: "{{ build_context }}"
+      dockerfile: "{{ dockerfile_path }}"
+      args: "{{ docker_build_args }}"
+      nocache: "{{ docker_build_no_cache }}"
+    source: build
+    state: present
+  register: build_result
+
+- name: Tag image for ECR
+  docker_image:
+    name: "{{ container_name }}:{{ image_tag }}"
+    repository: "{{ ecr_repository_uri }}"
+    tag: "{{ image_tag }}"
+    source: local
+    state: present
+
+- name: Push image to ECR
+  docker_image:
+    name: "{{ ecr_repository_uri }}"
+    tag: "{{ image_tag }}"
+    push: yes
+    source: local
+    state: present
+  register: push_result
+
+- name: Display build and push results
+  debug:
+    msg: |
+      Container deployment completed successfully:
+      - Image: {{ ecr_repository_uri }}:{{ image_tag }}
+      - Build ID: {{ build_result.image.Id | default('N/A') }}
+      - Push completed: {{ push_result.changed }}
+
+- name: Clean up local images (optional)
+  docker_image:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ container_name }}:{{ image_tag }}"
+  when: cleanup_local_images | default(false)
+
+- name: Update ECS service (if specified)
+  ecs_service:
+    name: "{{ ecs_service_name }}"
+    cluster: "{{ ecs_cluster_name }}"
+    task_definition: "{{ ecs_task_definition }}"
+    desired_count: "{{ ecs_desired_count | default(1) }}"
+    state: present
+    region: "{{ aws_region }}"
+  when: 
+    - ecs_service_name is defined
+    - ecs_cluster_name is defined
+    - ecs_task_definition is defined
