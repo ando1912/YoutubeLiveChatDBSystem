@@ -28,11 +28,11 @@ resource "aws_lambda_permission" "allow_eventbridge_rss_monitor" {
   source_arn    = aws_cloudwatch_event_rule.rss_monitor_schedule.arn
 }
 
-# Stream Status Checker - 1分間隔実行
+# Stream Status Checker - 5分間隔実行（API クォータ削減のため）
 resource "aws_cloudwatch_event_rule" "stream_status_checker_schedule" {
   name                = "${var.environment}-stream-status-checker-schedule"
-  description         = "Trigger Stream Status Checker Lambda every 1 minute"
-  schedule_expression = "rate(1 minute)"
+  description         = "Trigger Stream Status Checker Lambda every 5 minutes (reduced from 1 minute to save API quota)"
+  schedule_expression = "rate(5 minutes)"
   
   tags = {
     Name        = "${var.environment}-stream-status-checker-schedule"
@@ -153,10 +153,10 @@ resource "aws_cloudwatch_metric_alarm" "stream_status_checker_errors" {
   evaluation_periods  = "2"
   metric_name         = "Errors"
   namespace           = "AWS/Lambda"
-  period              = "60"
+  period              = "300"
   statistic           = "Sum"
-  threshold           = "10"
-  alarm_description   = "This metric monitors Stream Status Checker Lambda errors"
+  threshold           = "5"
+  alarm_description   = "This metric monitors Stream Status Checker Lambda errors (5 minute intervals)"
   alarm_actions       = []
 
   dimensions = {
