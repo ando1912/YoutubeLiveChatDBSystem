@@ -174,19 +174,24 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 def get_channels(query_params: Dict[str, str]) -> Dict[str, Any]:
     """
-    チャンネル一覧を取得
+    アクティブなチャンネル一覧を取得
     
     Args:
         query_params: クエリパラメータ
         
     Returns:
-        チャンネル一覧のレスポンス
+        アクティブなチャンネル一覧のレスポンス
     """
     try:
         table = dynamodb.Table(CHANNELS_TABLE)
         
-        # 全チャンネルをスキャン（実際の運用では改善が必要）
-        response = table.scan()
+        # アクティブなチャンネルのみを取得
+        response = table.scan(
+            FilterExpression='is_active = :active',
+            ExpressionAttributeValues={
+                ':active': True
+            }
+        )
         channels = response.get('Items', [])
         
         # 日時フィールドを文字列に変換（既に文字列の場合はそのまま）

@@ -96,7 +96,7 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
     
     // 監視停止の場合は確認ダイアログを表示
     if (channel.is_active) {
-      if (!window.confirm(`チャンネル「${channel.channel_name}」の監視を停止しますか？\n\n⚠️ 注意: 過去のデータ（配信履歴・コメント）は保持されます。\n\n監視を再開したい場合は、いつでも開始ボタンで再開できます。`)) {
+      if (!window.confirm(`チャンネル「${channel.channel_name}」の監視を停止しますか？\n\n⚠️ 実行される処理：\n• 監視の停止\n• 一覧からの削除\n• 過去のデータ（配信履歴・コメント）は保持\n\n再度監視したい場合は、チャンネルを追加し直してください。`)) {
         return;
       }
     }
