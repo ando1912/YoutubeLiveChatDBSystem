@@ -134,8 +134,11 @@ resource "aws_lambda_function" "stream_status_checker" {
   environment {
     variables = {
       ENVIRONMENT = var.environment
+      DYNAMODB_TABLE_CHANNELS = var.dynamodb_table_names.channels
       DYNAMODB_TABLE_LIVESTREAMS = var.dynamodb_table_names.livestreams
+      DYNAMODB_TABLE_TASK_STATUS = var.dynamodb_table_names.taskstatus
       SQS_QUEUE_URL = var.sqs_queue_url
+      ECS_CLUSTER_NAME = var.ecs_cluster_name
     }
   }
 

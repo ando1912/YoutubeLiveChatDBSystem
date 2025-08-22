@@ -57,3 +57,8 @@ variable "sqs_queue_arn" {
   description = "SQS Queue ARN"
   type        = string
 }
+
+variable "ecs_cluster_name" {
+  description = "ECS Cluster name"
+  type        = string
+}

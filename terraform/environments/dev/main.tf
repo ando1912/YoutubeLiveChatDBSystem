@@ -76,6 +76,7 @@ module "compute" {
   youtube_api_key_parameter_arn  = module.storage.youtube_api_key_parameter_arn
   sqs_queue_url                  = module.messaging.sqs_queue_url
   sqs_queue_arn                  = module.messaging.sqs_queue_arn
+  ecs_cluster_name               = "${var.environment}-youtube-comment-collector"
 }
 
 # API

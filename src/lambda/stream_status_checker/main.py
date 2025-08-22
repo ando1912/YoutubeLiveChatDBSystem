@@ -27,6 +27,7 @@ sqs = boto3.client('sqs')
 ssm = boto3.client('ssm')
 
 # 環境変数
+CHANNELS_TABLE = os.environ.get('DYNAMODB_TABLE_CHANNELS', 'dev-Channels')
 LIVESTREAMS_TABLE = os.environ.get('DYNAMODB_TABLE_LIVESTREAMS', 'dev-LiveStreams')
 TASK_STATUS_TABLE = os.environ.get('DYNAMODB_TABLE_TASK_STATUS', 'dev-TaskStatus')
 TASK_CONTROL_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
@@ -78,12 +79,28 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 def get_streams_to_check() -> List[Dict[str, Any]]:
     """
-    監視対象のライブ配信を取得
+    監視対象のライブ配信を取得（アクティブなチャンネルのみ）
     
     Returns:
         監視対象のライブ配信リスト
     """
     try:
+        # まずアクティブなチャンネル一覧を取得
+        channels_table = dynamodb.Table(CHANNELS_TABLE)
+        active_channels_response = channels_table.scan(
+            FilterExpression='is_active = :active',
+            ExpressionAttributeValues={':active': True},
+            ProjectionExpression='channel_id'
+        )
+        
+        active_channel_ids = {item['channel_id'] for item in active_channels_response.get('Items', [])}
+        logger.info(f"Found {len(active_channel_ids)} active channels")
+        
+        if not active_channel_ids:
+            logger.info("No active channels found, skipping stream check")
+            return []
+        
+        # 次に配信を取得
         table = dynamodb.Table(LIVESTREAMS_TABLE)
         
         # 24時間以内に作成された、アクティブなライブ配信を取得
@@ -103,7 +120,15 @@ def get_streams_to_check() -> List[Dict[str, Any]]:
             }
         )
         
-        return response.get('Items', [])
+        # アクティブなチャンネルの配信のみをフィルタリング
+        all_streams = response.get('Items', [])
+        active_streams = [
+            stream for stream in all_streams 
+            if stream.get('channel_id') in active_channel_ids
+        ]
+        
+        logger.info(f"Filtered {len(all_streams)} streams to {len(active_streams)} from active channels")
+        return active_streams
         
     except ClientError as e:
         logger.error(f"Error getting streams to check: {str(e)}")
