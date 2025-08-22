@@ -1,0 +1,97 @@
+---
+# YouTube Live Chat Collector - Frontend Deployment Playbook
+# 
+# このプレイブックはReact.jsアプリケーションをビルドしてS3にデプロイします
+# 
+# 実行方法:
+# ansible-playbook playbooks/deploy-frontend.yml
+# ansible-playbook playbooks/deploy-frontend.yml -e deploy_env=dev
+# ansible-playbook playbooks/deploy-frontend.yml -e build_only=true
+
+- name: Deploy React.js Frontend to S3
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    # デフォルト設定
+    deploy_env: "{{ deploy_env | default('dev') }}"
+    build_only_mode: "{{ build_only | default(false) }}"
+    force_rebuild: "{{ force_rebuild | default(false) }}"
+    
+    # プロジェクトパス
+    project_root: "{{ playbook_dir }}/../.."
+    frontend_path: "{{ project_root }}/src/frontend/youtube-chat-viewer"
+    terraform_path: "{{ project_root }}/terraform/environments/{{ deploy_env }}"
+    
+    # ビルド設定
+    node_version_required: "18"
+    npm_cache_clean: false
+    
+  tasks:
+    - name: Display deployment information
+      debug:
+        msg: |
+          🚀 YouTube Live Chat Collector - Frontend Deployment
+          Environment: {{ deploy_env }}
+          Build Only: {{ build_only_mode }}
+          Force Rebuild: {{ force_rebuild }}
+          Frontend Path: {{ frontend_path }}
+          Terraform Path: {{ terraform_path }}
+
+    - name: Check if frontend directory exists
+      stat:
+        path: "{{ frontend_path }}"
+      register: frontend_dir
+      
+    - name: Fail if frontend directory not found
+      fail:
+        msg: "Frontend directory not found: {{ frontend_path }}"
+      when: not frontend_dir.stat.exists
+
+    - name: Check Node.js version
+      command: node --version
+      register: node_version_check
+      changed_when: false
+      
+    - name: Display Node.js version
+      debug:
+        msg: "Node.js version: {{ node_version_check.stdout }}"
+
+    - name: Get Terraform outputs for S3 bucket information
+      command: terraform output -json
+      args:
+        chdir: "{{ terraform_path }}"
+      register: terraform_outputs
+      changed_when: false
+      when: not build_only_mode
+
+    - name: Parse Terraform outputs
+      set_fact:
+        s3_bucket_name: "{{ (terraform_outputs.stdout | from_json).frontend_bucket_name.value }}"
+        frontend_url: "{{ (terraform_outputs.stdout | from_json).frontend_url.value }}"
+        api_gateway_url: "{{ (terraform_outputs.stdout | from_json).api_gateway_url.value }}"
+        api_key: "{{ (terraform_outputs.stdout | from_json).api_key.value }}"
+      when: not build_only_mode
+
+    - name: Display S3 deployment information
+      debug:
+        msg: |
+          📦 S3 Deployment Information:
+          Bucket Name: {{ s3_bucket_name }}
+          Frontend URL: {{ frontend_url }}
+          API Gateway URL: {{ api_gateway_url }}
+      when: not build_only_mode
+
+    - name: Include frontend deployment role
+      include_role:
+        name: frontend-deployment
+      vars:
+        frontend_project_path: "{{ frontend_path }}"
+        s3_bucket: "{{ s3_bucket_name | default('') }}"
+        website_url: "{{ frontend_url | default('') }}"
+        api_base_url: "{{ api_gateway_url | default('') }}"
+        api_key_value: "{{ api_key | default('') }}"
+        deploy_to_s3: "{{ not build_only_mode }}"
+        force_clean_build: "{{ force_rebuild }}"
+        environment: "{{ deploy_env }}"

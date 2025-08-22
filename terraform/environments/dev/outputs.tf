@@ -59,3 +59,14 @@ output "frontend_url" {
   description = "URL of frontend application"
   value       = module.frontend.website_url
 }
+
+output "api_key" {
+  description = "API Gateway API Key for frontend"
+  value       = module.api.api_key_value
+  sensitive   = true
+}
+
+output "frontend_deployment_command" {
+  description = "AWS CLI command to deploy React.js build files"
+  value       = module.frontend.deployment_command
+}

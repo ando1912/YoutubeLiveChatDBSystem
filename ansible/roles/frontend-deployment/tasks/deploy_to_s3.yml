@@ -1,0 +1,170 @@
+---
+# S3 Deployment Tasks
+# React.jsビルドファイルをS3バケットにアップロード
+
+- name: Display S3 deployment start
+  debug:
+    msg: |
+      📤 Starting S3 Deployment
+      Source: {{ frontend_project_path }}/build/
+      Destination: s3://{{ s3_bucket }}/
+      
+- name: Check AWS CLI availability
+  command: aws --version
+  register: aws_cli_check
+  changed_when: false
+  failed_when: aws_cli_check.rc != 0
+
+- name: Display AWS CLI version
+  debug:
+    msg: "AWS CLI Version: {{ aws_cli_check.stdout }}"
+
+- name: Verify S3 bucket exists and is accessible
+  command: aws s3 ls s3://{{ s3_bucket }}/
+  register: s3_bucket_check
+  changed_when: false
+  failed_when: false
+
+- name: Display S3 bucket verification result
+  debug:
+    msg: |
+      S3 Bucket Verification:
+      {% if s3_bucket_check.rc == 0 %}
+      ✅ Bucket {{ s3_bucket }} is accessible
+      {% else %}
+      ❌ Bucket {{ s3_bucket }} is not accessible or doesn't exist
+      Error: {{ s3_bucket_check.stderr }}
+      {% endif %}
+
+- name: Fail if S3 bucket is not accessible
+  fail:
+    msg: |
+      S3 bucket {{ s3_bucket }} is not accessible.
+      Please ensure:
+      1. Bucket exists and is created by Terraform
+      2. AWS credentials are configured
+      3. IAM permissions allow s3:ListBucket and s3:PutObject
+  when: s3_bucket_check.rc != 0
+
+# バックアップ作成 (オプション)
+- name: Create backup of existing S3 content (if exists)
+  block:
+    - name: Check if S3 bucket has existing content
+      command: aws s3 ls s3://{{ s3_bucket }}/ --recursive
+      register: existing_content
+      changed_when: false
+      failed_when: false
+
+    - name: Create backup timestamp
+      set_fact:
+        backup_timestamp: "{{ ansible_date_time.epoch }}"
+      when: existing_content.stdout != ""
+
+    - name: Backup existing content to backup/ prefix
+      command: >
+        aws s3 sync s3://{{ s3_bucket }}/ s3://{{ s3_bucket }}/backup/{{ backup_timestamp }}/
+        --exclude "backup/*"
+      when: existing_content.stdout != ""
+      register: backup_result
+
+    - name: Display backup result
+      debug:
+        msg: |
+          📋 Backup Created:
+          Timestamp: {{ backup_timestamp }}
+          Location: s3://{{ s3_bucket }}/backup/{{ backup_timestamp }}/
+      when: existing_content.stdout != ""
+
+  rescue:
+    - name: Display backup warning
+      debug:
+        msg: "⚠️ Backup creation failed, continuing with deployment"
+
+# メインデプロイ
+- name: Deploy React.js build files to S3
+  command: >
+    aws s3 sync {{ frontend_project_path }}/build/ s3://{{ s3_bucket }}/
+    --delete
+    --exclude "backup/*"
+    --exclude "deployment-info.json"
+  register: s3_sync_result
+
+- name: Display S3 sync result
+  debug:
+    msg: |
+      📤 S3 Sync Completed:
+      {{ s3_sync_result.stdout_lines | join('\n') }}
+
+# デプロイ情報更新
+- name: Create deployment info file
+  copy:
+    content: |
+      {
+        "deployment_time": "{{ ansible_date_time.iso8601 }}",
+        "environment": "{{ environment | default('dev') }}",
+        "ansible_managed": true,
+        "react_build_deployed": true,
+        "build_files_count": {{ build_files.files | length }},
+        "deployment_user": "{{ ansible_user_id }}",
+        "deployment_host": "{{ ansible_hostname }}",
+        "git_commit": "{{ git_commit | default('unknown') }}",
+        "backup_location": "s3://{{ s3_bucket }}/backup/{{ backup_timestamp | default('none') }}/"
+      }
+    dest: /tmp/deployment-info.json
+    mode: '0644'
+
+- name: Upload deployment info to S3
+  command: >
+    aws s3 cp /tmp/deployment-info.json s3://{{ s3_bucket }}/deployment-info.json
+    --content-type "application/json"
+
+- name: Clean up temporary deployment info file
+  file:
+    path: /tmp/deployment-info.json
+    state: absent
+
+# デプロイ検証
+- name: Verify deployment by checking index.html
+  uri:
+    url: "{{ website_url }}"
+    method: GET
+    status_code: 200
+  register: website_check
+  retries: 3
+  delay: 5
+  ignore_errors: yes
+
+- name: Display deployment verification result
+  debug:
+    msg: |
+      🔍 Deployment Verification:
+      {% if website_check.status == 200 %}
+      ✅ Website is accessible at {{ website_url }}
+      Response Status: {{ website_check.status }}
+      {% else %}
+      ⚠️ Website verification failed
+      Status: {{ website_check.status | default('No response') }}
+      Note: It may take a few minutes for S3 website to be available
+      {% endif %}
+
+- name: Display final deployment summary
+  debug:
+    msg: |
+      🎉 S3 Deployment Summary:
+      
+      ✅ Deployment Status: SUCCESS
+      📦 S3 Bucket: {{ s3_bucket }}
+      🌐 Website URL: {{ website_url }}
+      📊 Files Deployed: {{ build_files.files | length }}
+      🕐 Deployment Time: {{ ansible_date_time.iso8601 }}
+      {% if backup_timestamp is defined %}
+      💾 Backup Location: s3://{{ s3_bucket }}/backup/{{ backup_timestamp }}/
+      {% endif %}
+      
+      🔗 Access your application:
+      {{ website_url }}
+      
+      📋 Useful commands:
+      - Check S3 content: aws s3 ls s3://{{ s3_bucket }}/ --recursive
+      - Download backup: aws s3 sync s3://{{ s3_bucket }}/backup/{{ backup_timestamp | default('latest') }}/ ./backup/
+      - Rollback: aws s3 sync s3://{{ s3_bucket }}/backup/{{ backup_timestamp | default('latest') }}/ s3://{{ s3_bucket }}/ --delete

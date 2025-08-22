@@ -1,0 +1,151 @@
+---
+# Frontend Deployment Role - Main Tasks
+# React.jsアプリケーションのビルドとS3デプロイを実行
+
+- name: Display frontend deployment configuration
+  debug:
+    msg: |
+      🎯 Frontend Deployment Configuration:
+      Project Path: {{ frontend_project_path }}
+      S3 Bucket: {{ s3_bucket }}
+      Website URL: {{ website_url }}
+      API Base URL: {{ api_base_url }}
+      Deploy to S3: {{ deploy_to_s3 }}
+      Force Clean Build: {{ force_clean_build }}
+
+# ===== 前提条件チェック =====
+
+- name: Check if package.json exists
+  stat:
+    path: "{{ frontend_project_path }}/package.json"
+  register: package_json
+
+- name: Fail if package.json not found
+  fail:
+    msg: "package.json not found in {{ frontend_project_path }}"
+  when: not package_json.stat.exists
+
+- name: Check if node_modules exists
+  stat:
+    path: "{{ frontend_project_path }}/node_modules"
+  register: node_modules
+
+# ===== 依存関係インストール =====
+
+- name: Clean npm cache (if requested)
+  command: npm cache clean --force
+  args:
+    chdir: "{{ frontend_project_path }}"
+  when: force_clean_build
+
+- name: Remove node_modules (if force rebuild)
+  file:
+    path: "{{ frontend_project_path }}/node_modules"
+    state: absent
+  when: force_clean_build
+
+- name: Remove package-lock.json (if force rebuild)
+  file:
+    path: "{{ frontend_project_path }}/package-lock.json"
+    state: absent
+  when: force_clean_build
+
+- name: Install npm dependencies
+  command: npm install
+  args:
+    chdir: "{{ frontend_project_path }}"
+  environment:
+    NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
+    NODE_TLS_REJECT_UNAUTHORIZED: "1"
+  when: not node_modules.stat.exists or force_clean_build
+
+# ===== 環境変数設定 =====
+
+- name: Create .env file for React.js build
+  template:
+    src: env.j2
+    dest: "{{ frontend_project_path }}/.env"
+    mode: '0644'
+  when: api_base_url != ""
+
+- name: Display .env file content (masked)
+  debug:
+    msg: |
+      📝 Environment variables configured:
+      REACT_APP_API_BASE_URL: {{ api_base_url }}
+      REACT_APP_API_KEY: [MASKED]
+      REACT_APP_APP_NAME: YouTube Live Chat Collector
+  when: api_base_url != ""
+
+# ===== React.js ビルド =====
+
+- name: Remove existing build directory
+  file:
+    path: "{{ frontend_project_path }}/build"
+    state: absent
+  when: force_clean_build
+
+- name: Build React.js application
+  command: npm run build
+  args:
+    chdir: "{{ frontend_project_path }}"
+  environment:
+    NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
+    NODE_TLS_REJECT_UNAUTHORIZED: "1"
+    CI: "true"  # React.jsビルド時の警告を抑制
+  register: build_result
+
+- name: Display build result
+  debug:
+    msg: |
+      ✅ React.js Build Completed
+      Build Output: {{ build_result.stdout_lines[-5:] | default(['No output']) | join('\n') }}
+
+- name: Check if build directory was created
+  stat:
+    path: "{{ frontend_project_path }}/build"
+  register: build_dir
+
+- name: Fail if build directory not created
+  fail:
+    msg: "Build directory not found after npm run build"
+  when: not build_dir.stat.exists
+
+- name: Display build directory contents
+  find:
+    paths: "{{ frontend_project_path }}/build"
+    recurse: yes
+  register: build_files
+
+- name: Show build statistics
+  debug:
+    msg: |
+      📊 Build Statistics:
+      Total Files: {{ build_files.files | length }}
+      Build Directory Size: {{ ansible_facts['ansible_mounts'] | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first | filesizeformat }}
+
+# ===== S3デプロイ =====
+
+- name: Include S3 deployment tasks
+  include_tasks: deploy_to_s3.yml
+  when: deploy_to_s3 and s3_bucket != ""
+
+# ===== デプロイ完了 =====
+
+- name: Display deployment completion
+  debug:
+    msg: |
+      🎉 Frontend Deployment Completed Successfully!
+      {% if deploy_to_s3 %}
+      🌐 Website URL: {{ website_url }}
+      📦 S3 Bucket: {{ s3_bucket }}
+      {% else %}
+      📦 Build Only Mode - Files ready in: {{ frontend_project_path }}/build
+      {% endif %}
+      
+      Next Steps:
+      {% if not deploy_to_s3 %}
+      - Deploy to S3: aws s3 sync {{ frontend_project_path }}/build/ s3://{{ s3_bucket }}/ --delete
+      {% endif %}
+      - Test the application: {{ website_url | default('Build files ready for deployment') }}
+      - Check browser console for API connectivity

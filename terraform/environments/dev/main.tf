@@ -101,6 +101,8 @@ module "frontend" {
   
   environment     = var.environment
   api_gateway_url = module.api.api_gateway_url
+  api_key         = module.api.api_key_value
+  app_version     = "1.0.0"
 }
 
 # 統合 (EventBridge、Lambda接続)

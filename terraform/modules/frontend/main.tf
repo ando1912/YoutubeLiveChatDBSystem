@@ -1,11 +1,13 @@
-# Frontend Module - S3 Static Website
+# Frontend Module - S3 Static Website for React.js Application
 
 # S3 Bucket for Frontend
 resource "aws_s3_bucket" "frontend" {
   bucket = "${var.environment}-youtube-chat-collector-frontend-${random_string.bucket_suffix.result}"
 
   tags = {
-    Name = "${var.environment}-youtube-chat-collector-frontend"
+    Name        = "${var.environment}-youtube-chat-collector-frontend"
+    Environment = var.environment
+    Project     = "YouTube Live Chat Collector"
   }
 }
 
@@ -25,7 +27,16 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 
   error_document {
-    key = "error.html"
+    key = "index.html"  # React.js SPA用 - 全てindex.htmlにリダイレクト
+  }
+
+  routing_rule {
+    condition {
+      key_prefix_equals = "/"
+    }
+    redirect {
+      replace_key_with = "index.html"
+    }
   }
 }
 
@@ -58,46 +69,34 @@ resource "aws_s3_bucket_policy" "frontend" {
   })
 }
 
-# S3 Bucket CORS Configuration
+# S3 Bucket CORS Configuration for React.js API calls
 resource "aws_s3_bucket_cors_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
   cors_rule {
     allowed_headers = ["*"]
-    allowed_methods = ["GET", "HEAD"]
+    allowed_methods = ["GET", "HEAD", "POST", "PUT", "DELETE"]
     allowed_origins = ["*"]
-    expose_headers  = ["ETag"]
-    max_age_seconds = 3000
+    expose_headers  = ["ETag", "x-amz-request-id"]
+    max_age_seconds = 3600
   }
 }
 
-# S3 Object for config.js (API Gateway URL injection)
-resource "aws_s3_object" "config" {
-  bucket       = aws_s3_bucket.frontend.id
-  key          = "config.js"
-  content_type = "application/javascript"
-  
-  content = templatefile("${path.module}/config.js.tpl", {
-    api_gateway_url = var.api_gateway_url
-    environment     = var.environment
-  })
-
-  tags = {
-    Name = "${var.environment}-frontend-config"
+# S3 Bucket Versioning (for deployment rollback)
+resource "aws_s3_bucket_versioning" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
-# Placeholder index.html
-resource "aws_s3_object" "index" {
-  bucket       = aws_s3_bucket.frontend.id
-  key          = "index.html"
-  content_type = "text/html"
-  
-  content = templatefile("${path.module}/index.html.tpl", {
-    environment = var.environment
-  })
+# S3 Bucket Server Side Encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
 
-  tags = {
-    Name = "${var.environment}-frontend-index"
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
   }
 }
