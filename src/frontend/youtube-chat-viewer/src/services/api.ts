@@ -207,7 +207,7 @@ class ApiService {
    * 対応するLambda: API Handler Lambda
    * エンドポイント: DELETE /channels/{channelId}
    * 
-   * 注意: 実際にはデータを削除せず、監視を停止してデータを保持
+   * 注意: 実際にはデータを削除せず、監視を停止してリストから除去
    */
   async deleteChannel(channelId: string): Promise<{message: string, channel: Channel}> {
     return this.request<{message: string, channel: Channel}>(`/channels/${channelId}`, {

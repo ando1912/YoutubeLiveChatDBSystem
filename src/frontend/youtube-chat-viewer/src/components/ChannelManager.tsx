@@ -96,6 +96,13 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
   const handleToggleMonitoring = async (channel: Channel) => {
     const newStatus = !channel.is_active;
     
+    // 監視停止の場合は確認ダイアログを表示
+    if (channel.is_active) {
+      if (!window.confirm(`チャンネル「${channel.channel_name}」の監視を停止しますか？\n\n⚠️ 注意: 過去のデータ（配信履歴・コメント）は保持されます。\n\n監視を再開したい場合は、いつでも開始ボタンで再開できます。`)) {
+        return;
+      }
+    }
+    
     try {
       setUpdatingChannels(prev => new Set(prev).add(channel.channel_id));
       
@@ -120,26 +127,26 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
     }
   };
 
-  // ===== チャンネル削除処理 =====
-  const handleDeleteChannel = async (channel: Channel) => {
-    if (!window.confirm(`チャンネル「${channel.channel_name}」を削除しますか？\n\n⚠️ 注意: 監視を停止しますが、過去のデータ（配信履歴・コメント）は保持されます。\n\nこの操作は安全ですが、監視を再開するには再度追加が必要です。`)) {
+  // ===== チャンネル監視停止・除去処理 =====
+  const handleStopAndRemoveChannel = async (channel: Channel) => {
+    if (!window.confirm(`チャンネル「${channel.channel_name}」の監視を停止して、リストから除去しますか？\n\n⚠️ 注意: 以下が実行されます：\n• 監視の完全停止\n• チャンネルリストから除去\n• 過去のデータ（配信履歴・コメント）は保持\n\n再度監視したい場合は、チャンネルを追加し直す必要があります。`)) {
       return;
     }
 
     try {
       setDeletingChannels(prev => new Set(prev).add(channel.channel_id));
       
-      console.log(`🔄 チャンネル削除開始: ${channel.channel_name}`);
+      console.log(`🔄 チャンネル監視停止・除去開始: ${channel.channel_name}`);
       
       await apiService.deleteChannel(channel.channel_id);
       
-      console.log('✅ チャンネル削除成功 (監視停止・データ保持)');
+      console.log('✅ チャンネル監視停止・除去成功 (データ保持)');
       
       // 親コンポーネントに更新通知
       onChannelsUpdate();
       
     } catch (error) {
-      console.error('❌ チャンネル削除エラー:', error);
+      console.error('❌ チャンネル監視停止・除去エラー:', error);
       // TODO: エラー通知表示
     } finally {
       setDeletingChannels(prev => {
@@ -261,7 +268,7 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
                   <button
                     className={`toggle-monitoring-btn ${channel.is_active ? 'stop' : 'start'}`}
                     onClick={() => handleToggleMonitoring(channel)}
-                    disabled={updatingChannels.has(channel.channel_id)}
+                    disabled={updatingChannels.has(channel.channel_id) || deletingChannels.has(channel.channel_id)}
                   >
                     {updatingChannels.has(channel.channel_id) ? (
                       '🔄 更新中...'
@@ -273,14 +280,15 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
                   </button>
                   
                   <button
-                    className="delete-channel-btn"
-                    onClick={() => handleDeleteChannel(channel)}
+                    className="stop-and-remove-btn"
+                    onClick={() => handleStopAndRemoveChannel(channel)}
                     disabled={deletingChannels.has(channel.channel_id) || updatingChannels.has(channel.channel_id)}
+                    title="監視を停止してリストから除去します（データは保持されます）"
                   >
                     {deletingChannels.has(channel.channel_id) ? (
-                      '🔄 削除中...'
+                      '🔄 処理中...'
                     ) : (
-                      '🗑️ 削除'
+                      '🛑 停止・除去'
                     )}
                   </button>
                 </div>

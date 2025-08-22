@@ -370,13 +370,13 @@ def update_channel(channel_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
 
 def delete_channel(channel_id: str) -> Dict[str, Any]:
     """
-    チャンネルを削除（監視停止として実装）
+    チャンネル監視停止・除去（安全な停止として実装）
     
     Args:
-        channel_id: 削除対象のチャンネルID
+        channel_id: 停止対象のチャンネルID
         
     Returns:
-        削除結果のレスポンス
+        停止結果のレスポンス
     """
     try:
         if not channel_id:
@@ -412,9 +412,9 @@ def delete_channel(channel_id: str) -> Dict[str, Any]:
             if field in updated_channel and hasattr(updated_channel[field], 'isoformat'):
                 updated_channel[field] = updated_channel[field].isoformat()
         
-        logger.info(f"Safely deleted (deactivated) channel: {channel_id}")
+        logger.info(f"Channel monitoring stopped and removed from list: {channel_id}")
         return create_response(200, {
-            'message': 'Channel safely removed (monitoring stopped, data preserved)',
+            'message': 'Channel monitoring stopped and removed from list (data preserved)',
             'channel': updated_channel
         })
         
