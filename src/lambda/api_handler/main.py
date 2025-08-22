@@ -235,13 +235,64 @@ def create_channel(body: Dict[str, Any]) -> Dict[str, Any]:
         
         table = dynamodb.Table(CHANNELS_TABLE)
         
-        # チャンネルの存在確認
+        # チャンネルの存在確認と再アクティブ化処理
         try:
             existing = table.get_item(Key={'channel_id': channel_id})
             if 'Item' in existing:
-                return create_response(409, {'error': 'Channel already exists'})
-        except ClientError:
-            pass
+                existing_channel = existing['Item']
+                # 既存チャンネルがアクティブな場合はエラー
+                if existing_channel.get('is_active', False):
+                    return create_response(409, {'error': 'Channel already exists and is active'})
+                
+                # 非アクティブなチャンネルの場合は再アクティブ化
+                logger.info(f"Reactivating inactive channel: {channel_id}")
+                now = datetime.now(timezone.utc)
+                
+                # YouTube APIから最新情報を取得
+                youtube_info = get_channel_info_from_youtube_api(channel_id)
+                
+                # 更新用の属性を準備
+                update_expression = "SET is_active = :active, updated_at = :updated_at"
+                expression_values = {
+                    ':active': True,
+                    ':updated_at': now.isoformat()
+                }
+                
+                # YouTube APIから情報が取得できた場合は更新
+                if youtube_info:
+                    update_expression += ", channel_name = :channel_name, subscriber_count = :subscriber_count, video_count = :video_count, view_count = :view_count, api_retrieved_at = :api_retrieved_at"
+                    expression_values.update({
+                        ':channel_name': youtube_info.get('channel_name', existing_channel.get('channel_name', '')),
+                        ':subscriber_count': youtube_info.get('subscriber_count', existing_channel.get('subscriber_count', '0')),
+                        ':video_count': youtube_info.get('video_count', existing_channel.get('video_count', '0')),
+                        ':view_count': youtube_info.get('view_count', existing_channel.get('view_count', '0')),
+                        ':api_retrieved_at': youtube_info.get('api_retrieved_at', '')
+                    })
+                
+                # チャンネルを再アクティブ化
+                response = table.update_item(
+                    Key={'channel_id': channel_id},
+                    UpdateExpression=update_expression,
+                    ExpressionAttributeValues=expression_values,
+                    ReturnValues='ALL_NEW'
+                )
+                
+                reactivated_channel = response['Attributes']
+                
+                # 日時フィールドを文字列に変換
+                for field in ['created_at', 'updated_at', 'api_retrieved_at']:
+                    if field in reactivated_channel and hasattr(reactivated_channel[field], 'isoformat'):
+                        reactivated_channel[field] = reactivated_channel[field].isoformat()
+                
+                logger.info(f"Channel reactivated successfully: {channel_id}")
+                return create_response(200, {
+                    'message': 'Channel reactivated successfully',
+                    'channel': reactivated_channel
+                })
+                
+        except ClientError as e:
+            logger.error(f"Error checking existing channel: {str(e)}")
+            return create_response(500, {'error': 'Database error'})
         
         # YouTube APIからチャンネル情報を取得
         youtube_info = get_channel_info_from_youtube_api(channel_id)
