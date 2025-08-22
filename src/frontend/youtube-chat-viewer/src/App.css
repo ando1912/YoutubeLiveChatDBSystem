@@ -1,6 +1,6 @@
 /**
  * YouTube Live Chat Collector - ダッシュボードスタイル
- * Phase 12 Step 1: 基本ダッシュボードデザイン
+ * Phase 12 Step 2: チャンネル管理機能統合
  */
 
 /* ===== リセット・基本設定 ===== */
@@ -91,6 +91,54 @@ body {
 .refresh-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* ===== ナビゲーションタブ ===== */
+.app-nav {
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.nav-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  padding: 0 2rem;
+}
+
+.nav-tab {
+  background: none;
+  border: none;
+  padding: 1rem 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #718096;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.nav-tab:hover {
+  color: #4a5568;
+  background: #f7fafc;
+}
+
+.nav-tab.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  background: #f7fafc;
+}
+
+.nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 /* ===== メインコンテンツ ===== */
@@ -365,6 +413,15 @@ section h2 {
     font-size: 1.5rem;
   }
   
+  .nav-content {
+    padding: 0 1rem;
+  }
+  
+  .nav-tab {
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+  }
+  
   .stats-grid {
     grid-template-columns: 1fr;
   }
@@ -390,5 +447,10 @@ section h2 {
   
   .header-content h1 {
     font-size: 1.25rem;
+  }
+  
+  .nav-tab {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
   }
 }

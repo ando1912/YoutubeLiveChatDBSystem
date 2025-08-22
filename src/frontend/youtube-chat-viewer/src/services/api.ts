@@ -155,7 +155,8 @@ class ApiService {
    * - 監視状態 (is_active)
    */
   async getChannels(): Promise<Channel[]> {
-    return this.request<Channel[]>('/channels');
+    const response = await this.request<{channels: Channel[], count: number}>('/channels');
+    return response.channels || [];
   }
 
   /**
@@ -190,9 +191,27 @@ class ApiService {
    * エンドポイント: PUT /channels/{channelId}
    */
   async updateChannelStatus(channelId: string, isActive: boolean): Promise<Channel> {
-    return this.request<Channel>(`/channels/${channelId}`, {
+    const response = await this.request<{message: string, channel: Channel}>(`/channels/${channelId}`, {
       method: 'PUT',
       body: JSON.stringify({ is_active: isActive }),
+    });
+    return response.channel;
+  }
+
+  /**
+   * チャンネルを削除（安全な削除: 監視停止）
+   * 
+   * @param channelId - 削除対象チャンネルID
+   * @returns Promise<{message: string, channel: Channel}> - 削除結果
+   * 
+   * 対応するLambda: API Handler Lambda
+   * エンドポイント: DELETE /channels/{channelId}
+   * 
+   * 注意: 実際にはデータを削除せず、監視を停止してデータを保持
+   */
+  async deleteChannel(channelId: string): Promise<{message: string, channel: Channel}> {
+    return this.request<{message: string, channel: Channel}>(`/channels/${channelId}`, {
+      method: 'DELETE',
     });
   }
 
@@ -215,7 +234,8 @@ class ApiService {
     if (filters?.channel_id) params.append('channel_id', filters.channel_id);
     
     const endpoint = `/streams${params.toString() ? `?${params.toString()}` : ''}`;
-    return this.request<Stream[]>(endpoint);
+    const response = await this.request<{streams: Stream[], count: number}>(endpoint);
+    return response.streams || [];
   }
 
   /**
@@ -264,7 +284,8 @@ class ApiService {
     if (options?.offset) params.append('offset', options.offset.toString());
     
     const endpoint = `/comments/${videoId}${params.toString() ? `?${params.toString()}` : ''}`;
-    return this.request<Comment[]>(endpoint);
+    const response = await this.request<{comments: Comment[], count: number, total: number}>(endpoint);
+    return response.comments || [];
   }
 
   // ===== システム統計メソッド =====

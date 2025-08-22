@@ -147,6 +147,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 body = json.loads(event.get('body', '{}'))
                 return create_channel(body)
                 
+        elif path.startswith('/channels/'):
+            # /channels/{channel_id} パターン
+            channel_id = path.split('/')[-1]
+            if http_method == 'PUT':
+                body = json.loads(event.get('body', '{}'))
+                return update_channel(channel_id, body)
+            elif http_method == 'DELETE':
+                return delete_channel(channel_id)
+                
         elif path == '/streams':
             if http_method == 'GET':
                 return get_streams(query_parameters)
@@ -180,12 +189,16 @@ def get_channels(query_params: Dict[str, str]) -> Dict[str, Any]:
         response = table.scan()
         channels = response.get('Items', [])
         
-        # 日時フィールドを文字列に変換
+        # 日時フィールドを文字列に変換（既に文字列の場合はそのまま）
         for channel in channels:
             if 'created_at' in channel:
-                channel['created_at'] = channel['created_at'].isoformat()
+                if hasattr(channel['created_at'], 'isoformat'):
+                    channel['created_at'] = channel['created_at'].isoformat()
+                # 既に文字列の場合はそのまま使用
             if 'updated_at' in channel:
-                channel['updated_at'] = channel['updated_at'].isoformat()
+                if hasattr(channel['updated_at'], 'isoformat'):
+                    channel['updated_at'] = channel['updated_at'].isoformat()
+                # 既に文字列の場合はそのまま使用
         
         return create_response(200, {
             'channels': channels,
@@ -282,6 +295,136 @@ def create_channel(body: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Unexpected error in create_channel: {str(e)}")
         return create_response(500, {'error': 'Internal server error'})
 
+def update_channel(channel_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    チャンネル情報を更新（主に監視状態の切り替え）
+    
+    Args:
+        channel_id: 更新対象のチャンネルID
+        body: 更新データ
+        
+    Returns:
+        更新されたチャンネル情報のレスポンス
+    """
+    try:
+        if not channel_id:
+            return create_response(400, {'error': 'channel_id is required'})
+        
+        table = dynamodb.Table(CHANNELS_TABLE)
+        
+        # チャンネルの存在確認
+        try:
+            response = table.get_item(Key={'channel_id': channel_id})
+            if 'Item' not in response:
+                return create_response(404, {'error': 'Channel not found'})
+        except ClientError as e:
+            logger.error(f"Error checking channel existence: {str(e)}")
+            return create_response(500, {'error': 'Database error'})
+        
+        # 更新可能なフィールドを制限
+        allowed_fields = ['is_active']
+        update_data = {}
+        
+        for field in allowed_fields:
+            if field in body:
+                update_data[field] = body[field]
+        
+        if not update_data:
+            return create_response(400, {'error': 'No valid fields to update'})
+        
+        # 更新実行
+        now = datetime.now(timezone.utc)
+        update_expression = "SET updated_at = :updated_at"
+        expression_attribute_values = {':updated_at': now.isoformat()}
+        
+        for field, value in update_data.items():
+            update_expression += f", {field} = :{field}"
+            expression_attribute_values[f':{field}'] = value
+        
+        response = table.update_item(
+            Key={'channel_id': channel_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_attribute_values,
+            ReturnValues='ALL_NEW'
+        )
+        
+        updated_channel = response['Attributes']
+        
+        # 日時フィールドを文字列に変換
+        for field in ['created_at', 'updated_at', 'api_retrieved_at']:
+            if field in updated_channel and hasattr(updated_channel[field], 'isoformat'):
+                updated_channel[field] = updated_channel[field].isoformat()
+        
+        logger.info(f"Updated channel: {channel_id} - {update_data}")
+        return create_response(200, {
+            'message': 'Channel updated successfully',
+            'channel': updated_channel
+        })
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error in update_channel: {str(e)}")
+        return create_response(500, {'error': 'Database error'})
+    except Exception as e:
+        logger.error(f"Unexpected error in update_channel: {str(e)}")
+        return create_response(500, {'error': 'Internal server error'})
+
+def delete_channel(channel_id: str) -> Dict[str, Any]:
+    """
+    チャンネルを削除（監視停止として実装）
+    
+    Args:
+        channel_id: 削除対象のチャンネルID
+        
+    Returns:
+        削除結果のレスポンス
+    """
+    try:
+        if not channel_id:
+            return create_response(400, {'error': 'channel_id is required'})
+        
+        table = dynamodb.Table(CHANNELS_TABLE)
+        
+        # チャンネルの存在確認
+        try:
+            response = table.get_item(Key={'channel_id': channel_id})
+            if 'Item' not in response:
+                return create_response(404, {'error': 'Channel not found'})
+        except ClientError as e:
+            logger.error(f"Error checking channel existence: {str(e)}")
+            return create_response(500, {'error': 'Database error'})
+        
+        # 安全な削除: 監視停止に変更（データは保持）
+        now = datetime.now(timezone.utc)
+        response = table.update_item(
+            Key={'channel_id': channel_id},
+            UpdateExpression="SET is_active = :inactive, updated_at = :updated_at",
+            ExpressionAttributeValues={
+                ':inactive': False,
+                ':updated_at': now.isoformat()
+            },
+            ReturnValues='ALL_NEW'
+        )
+        
+        updated_channel = response['Attributes']
+        
+        # 日時フィールドを文字列に変換
+        for field in ['created_at', 'updated_at', 'api_retrieved_at']:
+            if field in updated_channel and hasattr(updated_channel[field], 'isoformat'):
+                updated_channel[field] = updated_channel[field].isoformat()
+        
+        logger.info(f"Safely deleted (deactivated) channel: {channel_id}")
+        return create_response(200, {
+            'message': 'Channel safely removed (monitoring stopped, data preserved)',
+            'channel': updated_channel
+        })
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error in delete_channel: {str(e)}")
+        return create_response(500, {'error': 'Database error'})
+    except Exception as e:
+        logger.error(f"Unexpected error in delete_channel: {str(e)}")
+        return create_response(500, {'error': 'Internal server error'})
+
 def get_streams(query_params: Dict[str, str]) -> Dict[str, Any]:
     """
     ライブ配信一覧を取得
@@ -312,11 +455,13 @@ def get_streams(query_params: Dict[str, str]) -> Dict[str, Any]:
         
         streams = response.get('Items', [])
         
-        # 日時フィールドを文字列に変換
+        # 日時フィールドを文字列に変換（既に文字列の場合はそのまま）
         for stream in streams:
-            for field in ['created_at', 'started_at', 'ended_at']:
+            for field in ['created_at', 'updated_at', 'scheduled_start_time', 'actual_start_time', 'actual_end_time']:
                 if field in stream and stream[field]:
-                    stream[field] = stream[field].isoformat()
+                    if hasattr(stream[field], 'isoformat'):
+                        stream[field] = stream[field].isoformat()
+                    # 既に文字列の場合はそのまま使用
         
         return create_response(200, {
             'streams': streams,
@@ -368,10 +513,12 @@ def get_comments(video_id: str, query_params: Dict[str, str]) -> Dict[str, Any]:
         response = table.query(**query_params_db)
         comments = response.get('Items', [])
         
-        # 日時フィールドを文字列に変換
+        # 日時フィールドを文字列に変換（既に文字列の場合はそのまま）
         for comment in comments:
             if 'timestamp' in comment:
-                comment['timestamp'] = comment['timestamp'].isoformat()
+                if hasattr(comment['timestamp'], 'isoformat'):
+                    comment['timestamp'] = comment['timestamp'].isoformat()
+                # 既に文字列の場合はそのまま使用
         
         result = {
             'comments': comments,
