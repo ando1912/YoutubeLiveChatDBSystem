@@ -12,7 +12,7 @@ import boto3
 import os
 import requests
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError
 import logging
@@ -139,13 +139,13 @@ def check_channel_rss(channel: Dict[str, Any]) -> List[Dict[str, Any]]:
             title = entry.find('atom:title', namespaces).text
             published = entry.find('atom:published', namespaces).text
             
-            # 公開日が24時間以内の動画のみをチェック
-            published_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
-            if datetime.now(timezone.utc) - published_dt > timedelta(hours=24):
-                continue
+            # 時間制限を撤廃 - 長期予約配信も検知可能にする
+            # published_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
+            # if datetime.now(timezone.utc) - published_dt > timedelta(hours=24):
+            #     continue
             
             # 既存のレコードをチェック
-            if not is_stream_already_detected(video_id):
+            if not is_existing_stream(video_id):
                 # YouTube Data APIでライブ配信かどうかを確認
                 if is_live_stream(video_id):
                     stream_info = {
@@ -153,8 +153,12 @@ def check_channel_rss(channel: Dict[str, Any]) -> List[Dict[str, Any]]:
                         'channel_id': channel_id,
                         'title': title,
                         'published_at': published,
-                        'detected_at': datetime.now(timezone.utc).isoformat()
+                        'status': 'detected',
+                        'created_at': datetime.now(timezone.utc).isoformat()
                     }
+                    
+                    # DynamoDBに保存
+                    save_stream(stream_info)
                     new_streams.append(stream_info)
                     logger.info(f"New live stream detected: {video_id} - {title}")
         
@@ -170,99 +174,6 @@ def check_channel_rss(channel: Dict[str, Any]) -> List[Dict[str, Any]]:
         logger.error(f"Unexpected error checking RSS for channel {channel_id}: {str(e)}")
         return []
 
-def is_live_stream(video_id: str) -> bool:
-    """
-    YouTube Data APIを使用して動画がライブ配信かどうかを確認
-    
-    Args:
-        video_id: YouTube動画ID
-        
-    Returns:
-        ライブ配信の場合True
-    """
-    try:
-        # YouTube API Keyを取得
-        api_key = get_youtube_api_key()
-        if not api_key:
-            logger.error("YouTube API key not found")
-            return False
-        
-        # YouTube Data API v3で動画情報を取得
-        url = "https://www.googleapis.com/youtube/v3/videos"
-        params = {
-            'id': video_id,
-            'part': 'liveStreamingDetails,snippet',
-            'key': api_key
-        }
-        
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if not data.get('items'):
-            return False
-        
-        video_info = data['items'][0]
-        snippet = video_info.get('snippet', {})
-        live_details = video_info.get('liveStreamingDetails', {})
-        
-        # ライブ配信の判定
-        live_broadcast_content = snippet.get('liveBroadcastContent', 'none')
-        
-        # live, upcoming, または liveStreamingDetails が存在する場合のみライブ配信とみなす
-        return (live_broadcast_content in ['live', 'upcoming'] or 
-                bool(live_details))
-        
-    except requests.RequestException as e:
-        logger.error(f"Error checking live stream status for {video_id}: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error checking live stream {video_id}: {str(e)}")
-        return False
-        
-        # XMLを解析
-        root = ET.fromstring(response.content)
-        
-        # 名前空間の定義
-        namespaces = {
-            'atom': 'http://www.w3.org/2005/Atom',
-            'yt': 'http://www.youtube.com/xml/schemas/2015',
-            'media': 'http://search.yahoo.com/mrss/'
-        }
-        
-        new_streams = []
-        
-        # エントリーを処理
-        for entry in root.findall('atom:entry', namespaces):
-            try:
-                video_id = entry.find('yt:videoId', namespaces).text
-                title = entry.find('atom:title', namespaces).text
-                published = entry.find('atom:published', namespaces).text
-                
-                # 既存のライブ配信かチェック
-                if not is_existing_stream(video_id):
-                    # YouTube Data APIでライブ配信かどうか確認
-                    if is_live_stream(video_id):
-                        stream_data = {
-                            'video_id': video_id,
-                            'channel_id': channel_id,
-                            'title': title,
-                            'published_at': published,
-                            'status': 'detected',
-                            'created_at': datetime.now(timezone.utc).isoformat()
-                        }
-                        
-                        # DynamoDBに保存
-                        save_stream(stream_data)
-                        new_streams.append(stream_data)
-                        
-                        logger.info(f"New live stream detected: {video_id} - {title}")
-                
-            except Exception as e:
-                logger.error(f"Error processing RSS entry: {str(e)}")
-                continue
-        
         return new_streams
         
     except requests.RequestException as e:
@@ -270,6 +181,9 @@ def is_live_stream(video_id: str) -> bool:
         return []
     except ET.ParseError as e:
         logger.error(f"Error parsing RSS XML for channel {channel_id}: {str(e)}")
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error checking RSS for channel {channel_id}: {str(e)}")
         return []
 
 def is_existing_stream(video_id: str) -> bool:
