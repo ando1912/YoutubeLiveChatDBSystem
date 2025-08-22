@@ -85,3 +85,7 @@ secrets/
 *.pem
 *.key
 !*.pub
+# ログファイル（機密情報含有の可能性）
+log/
+*.log
+qdev_conversations_summary.txt
