@@ -21,6 +21,13 @@ resource "aws_api_gateway_resource" "channels" {
   path_part   = "channels"
 }
 
+# Individual channel resource (/channels/{id})
+resource "aws_api_gateway_resource" "channel_id" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.channels.id
+  path_part   = "{id}"
+}
+
 resource "aws_api_gateway_resource" "streams" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   parent_id   = aws_api_gateway_rest_api.main.root_resource_id
@@ -43,6 +50,13 @@ resource "aws_api_gateway_resource" "comments" {
 resource "aws_api_gateway_method" "channels_options" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.channels.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "channel_id_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.channel_id.id
   http_method   = "OPTIONS"
   authorization = "NONE"
 }
@@ -74,6 +88,23 @@ resource "aws_api_gateway_method" "channels_post" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.channels.id
   http_method   = "POST"
+  authorization = "NONE"
+  api_key_required = true
+}
+
+# Individual channel methods (PUT/DELETE)
+resource "aws_api_gateway_method" "channel_id_put" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.channel_id.id
+  http_method   = "PUT"
+  authorization = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_method" "channel_id_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.channel_id.id
+  http_method   = "DELETE"
   authorization = "NONE"
   api_key_required = true
 }
@@ -115,6 +146,27 @@ resource "aws_api_gateway_integration" "channels_post" {
   uri                    = var.api_handler_lambda.invoke_arn
 }
 
+# Individual channel integrations
+resource "aws_api_gateway_integration" "channel_id_put" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.channel_id.id
+  http_method = aws_api_gateway_method.channel_id_put.http_method
+
+  integration_http_method = "POST"
+  type                   = "AWS_PROXY"
+  uri                    = var.api_handler_lambda.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "channel_id_delete" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.channel_id.id
+  http_method = aws_api_gateway_method.channel_id_delete.http_method
+
+  integration_http_method = "POST"
+  type                   = "AWS_PROXY"
+  uri                    = var.api_handler_lambda.invoke_arn
+}
+
 resource "aws_api_gateway_integration" "streams_get" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.streams.id
@@ -140,6 +192,19 @@ resource "aws_api_gateway_integration" "channels_options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.channels.id
   http_method = aws_api_gateway_method.channels_options.http_method
+
+  type = "MOCK"
+  request_templates = {
+    "application/json" = jsonencode({
+      statusCode = 200
+    })
+  }
+}
+
+resource "aws_api_gateway_integration" "channel_id_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.channel_id.id
+  http_method = aws_api_gateway_method.channel_id_options.http_method
 
   type = "MOCK"
   request_templates = {
@@ -189,6 +254,19 @@ resource "aws_api_gateway_method_response" "channels_options" {
   }
 }
 
+resource "aws_api_gateway_method_response" "channel_id_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.channel_id.id
+  http_method = aws_api_gateway_method.channel_id_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
 resource "aws_api_gateway_method_response" "streams_options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.streams.id
@@ -223,8 +301,21 @@ resource "aws_api_gateway_integration_response" "channels_options" {
   status_code = aws_api_gateway_method_response.channels_options.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-api-key'"
     "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+}
+
+resource "aws_api_gateway_integration_response" "channel_id_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.channel_id.id
+  http_method = aws_api_gateway_method.channel_id_options.http_method
+  status_code = aws_api_gateway_method_response.channel_id_options.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-api-key'"
+    "method.response.header.Access-Control-Allow-Methods" = "'PUT,DELETE,OPTIONS'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 }
@@ -309,9 +400,12 @@ resource "aws_api_gateway_deployment" "main" {
   depends_on = [
     aws_api_gateway_integration.channels_get,
     aws_api_gateway_integration.channels_post,
+    aws_api_gateway_integration.channel_id_put,
+    aws_api_gateway_integration.channel_id_delete,
     aws_api_gateway_integration.streams_get,
     aws_api_gateway_integration.comments_get,
     aws_api_gateway_integration.channels_options,
+    aws_api_gateway_integration.channel_id_options,
     aws_api_gateway_integration.streams_options,
     aws_api_gateway_integration.comments_options,
   ]
