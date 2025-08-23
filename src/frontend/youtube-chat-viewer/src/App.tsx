@@ -338,7 +338,7 @@ function App() {
                   {/* 配信中のライブ */}
                   {(() => {
                     const liveStreams = activeStreams
-                      .filter(stream => ['live', 'upcoming'].includes(stream.status))
+                      .filter(stream => stream.status === 'live')
                       .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
                     
                     return liveStreams.length > 0 ? (
@@ -356,7 +356,7 @@ function App() {
                               >
                                 {/* 配信ステータスバッジ */}
                                 <div className={`stream-status-badge ${stream.status}`}>
-                                  {stream.status === 'live' ? '🔴' : '⏰'}
+                                  🔴
                                 </div>
 
                                 {/* サムネイル */}
@@ -396,9 +396,79 @@ function App() {
                                       })
                                     }
                                   </div>
+                                </div>
 
-                                  <div className={`stream-status-text ${stream.status}`}>
-                                    {stream.status === 'live' ? 'ライブ配信中' : '配信予定'}
+                                <div className="click-indicator">
+                                  <span>詳細 →</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+
+                  {/* 配信予定のライブ */}
+                  {(() => {
+                    const upcomingStreams = activeStreams
+                      .filter(stream => stream.status === 'upcoming')
+                      .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                    
+                    return upcomingStreams.length > 0 ? (
+                      <div className="stream-category">
+                        <h3 className="category-title">
+                          ⏰ 配信予定のライブ ({upcomingStreams.length}件)
+                        </h3>
+                        <div className="streams-scroll-container">
+                          <div className="streams-grid compact">
+                            {upcomingStreams.slice(0, 6).map((stream) => (
+                              <div 
+                                key={stream.video_id} 
+                                className="stream-card compact upcoming"
+                                onClick={() => handleStreamClick(stream.video_id)}
+                              >
+                                {/* 配信ステータスバッジ */}
+                                <div className={`stream-status-badge ${stream.status}`}>
+                                  ⏰
+                                </div>
+
+                                {/* サムネイル */}
+                                <div className="stream-thumbnail compact">
+                                  <img 
+                                    src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                    alt={stream.title}
+                                    onError={(e) => {
+                                      e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                    }}
+                                  />
+                                </div>
+
+                                {/* 配信情報 */}
+                                <div className="stream-info compact">
+                                  <div className="stream-title compact" title={stream.title}>
+                                    {stream.title.length > 35 ? 
+                                      `${stream.title.substring(0, 35)}...` : 
+                                      stream.title
+                                    }
+                                  </div>
+
+                                  <div className="stream-channel compact">
+                                    <span className="channel-name">
+                                      {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                       'チャンネル不明'}
+                                    </span>
+                                  </div>
+
+                                  <div className="stream-time compact">
+                                    {stream.published_at ? 
+                                      new Date(stream.published_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      }) :
+                                      new Date(stream.created_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      })
+                                    }
                                   </div>
                                 </div>
 
@@ -474,10 +544,6 @@ function App() {
                                       })
                                     }
                                   </div>
-
-                                  <div className={`stream-status-text ${stream.status}`}>
-                                    配信終了
-                                  </div>
                                 </div>
 
                                 <div className="click-indicator">
@@ -549,7 +615,7 @@ function App() {
                 {/* 配信中のライブ */}
                 {(() => {
                   const liveStreams = activeStreams
-                    .filter(stream => ['live', 'upcoming'].includes(stream.status))
+                    .filter(stream => stream.status === 'live')
                     .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
                   
                   return liveStreams.length > 0 ? (
@@ -561,11 +627,11 @@ function App() {
                         {liveStreams.map((stream) => (
                           <div 
                             key={stream.video_id} 
-                            className="stream-card"
+                            className="stream-card live"
                             onClick={() => handleStreamClick(stream.video_id)}
                           >
                             <div className={`stream-status-badge ${stream.status}`}>
-                              {stream.status === 'live' ? '🔴' : '⏰'}
+                              🔴
                             </div>
                             <div className="stream-thumbnail">
                               <img 
@@ -592,8 +658,62 @@ function App() {
                                   new Date(stream.created_at).toLocaleString('ja-JP')
                                 }
                               </div>
-                              <div className={`stream-status-text ${stream.status}`}>
-                                {stream.status === 'live' ? 'ライブ配信中' : '配信予定'}
+                            </div>
+                            <div className="click-indicator">
+                              <span>詳細を見る →</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* 配信予定のライブ */}
+                {(() => {
+                  const upcomingStreams = activeStreams
+                    .filter(stream => stream.status === 'upcoming')
+                    .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                  
+                  return upcomingStreams.length > 0 ? (
+                    <div className="stream-category">
+                      <h2 className="category-title">
+                        ⏰ 配信予定のライブ ({upcomingStreams.length}件)
+                      </h2>
+                      <div className="streams-grid">
+                        {upcomingStreams.map((stream) => (
+                          <div 
+                            key={stream.video_id} 
+                            className="stream-card upcoming"
+                            onClick={() => handleStreamClick(stream.video_id)}
+                          >
+                            <div className={`stream-status-badge ${stream.status}`}>
+                              ⏰
+                            </div>
+                            <div className="stream-thumbnail">
+                              <img 
+                                src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                alt={stream.title}
+                                onError={(e) => {
+                                  e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                }}
+                              />
+                            </div>
+                            <div className="stream-info">
+                              <div className="stream-title" title={stream.title}>
+                                {stream.title}
+                              </div>
+                              <div className="stream-channel">
+                                <span className="channel-name">
+                                  {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                   'チャンネル不明'}
+                                </span>
+                              </div>
+                              <div className="stream-time">
+                                {stream.published_at ? 
+                                  new Date(stream.published_at).toLocaleString('ja-JP') :
+                                  new Date(stream.created_at).toLocaleString('ja-JP')
+                                }
                               </div>
                             </div>
                             <div className="click-indicator">
@@ -652,9 +772,6 @@ function App() {
                                   new Date(stream.created_at).toLocaleString('ja-JP')
                                 }
                               </div>
-                              <div className={`stream-status-text ${stream.status}`}>
-                                配信終了
-                              </div>
                             </div>
                             <div className="click-indicator">
                               <span>詳細を見る →</span>
@@ -678,16 +795,6 @@ function App() {
         {/* 配信詳細ページ */}
         {activeTab === 'stream-detail' && selectedStreamId && (
           <div className="stream-detail-page">
-            {/* 戻るボタン */}
-            <div className="detail-header">
-              <button 
-                className="back-btn"
-                onClick={() => handleTabChange('streams')}
-              >
-                ← 配信一覧に戻る
-              </button>
-            </div>
-
             {(() => {
               const stream = activeStreams.find(s => s.video_id === selectedStreamId);
               if (!stream) {
@@ -700,6 +807,7 @@ function App() {
               }
 
               const channel = channels.find(ch => ch.channel_id === stream.channel_id);
+              const isCollecting = collectionStatus?.running_video_ids?.includes(stream.video_id) || false;
 
               return (
                 <div className="stream-detail-content">
@@ -719,6 +827,11 @@ function App() {
                          stream.status === 'ended' ? '⏹️ 終了' :
                          '🆕 検出済み'}
                       </div>
+                      {isCollecting && (
+                        <div className="collecting-badge">
+                          💬 コメント収集中
+                        </div>
+                      )}
                     </div>
                     
                     <div className="stream-meta">
@@ -728,6 +841,26 @@ function App() {
                           {channel?.channel_name || 'チャンネル不明'}
                         </span>
                         <span className="channel-id">({stream.channel_id})</span>
+                      </div>
+                      
+                      {/* 配信アクション */}
+                      <div className="stream-actions">
+                        <a 
+                          href={`https://www.youtube.com/watch?v=${stream.video_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="action-btn primary"
+                        >
+                          🎬 YouTubeで視聴
+                        </a>
+                        <a 
+                          href={`https://www.youtube.com/channel/${stream.channel_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="action-btn secondary"
+                        >
+                          📺 チャンネルを見る
+                        </a>
                       </div>
                     </div>
                   </div>
