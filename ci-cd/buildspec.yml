@@ -24,7 +24,7 @@ phases:
       - echo "=== Build phase started on $(date) ==="
       - echo "Building the Docker image for comment collector..."
       - cd src/ecs/comment_collector
-      - echo "Current directory: $(pwd)"
+      - echo "Current directory is $(pwd)"
       - echo "Files in directory:"
       - ls -la
       - echo "Building Docker image..."
