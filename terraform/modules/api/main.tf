@@ -46,6 +46,13 @@ resource "aws_api_gateway_resource" "comments" {
   path_part   = "comments"
 }
 
+# Collection Status Resource
+resource "aws_api_gateway_resource" "collection_status" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "collection-status"
+}
+
 # CORS Options Method for all resources
 resource "aws_api_gateway_method" "channels_options" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
@@ -71,6 +78,13 @@ resource "aws_api_gateway_method" "streams_options" {
 resource "aws_api_gateway_method" "comments_options" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.comments.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "collection_status_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.collection_status.id
   http_method   = "OPTIONS"
   authorization = "NONE"
 }
@@ -120,6 +134,14 @@ resource "aws_api_gateway_method" "streams_get" {
 resource "aws_api_gateway_method" "comments_get" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.comments.id
+  http_method   = "GET"
+  authorization = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_method" "collection_status_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.collection_status.id
   http_method   = "GET"
   authorization = "NONE"
   api_key_required = true
@@ -187,6 +209,16 @@ resource "aws_api_gateway_integration" "comments_get" {
   uri                    = var.api_handler_lambda.invoke_arn
 }
 
+resource "aws_api_gateway_integration" "collection_status_get" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.collection_status.id
+  http_method = aws_api_gateway_method.collection_status_get.http_method
+
+  integration_http_method = "POST"
+  type                   = "AWS_PROXY"
+  uri                    = var.api_handler_lambda.invoke_arn
+}
+
 # CORS Integration
 resource "aws_api_gateway_integration" "channels_options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -231,6 +263,19 @@ resource "aws_api_gateway_integration" "comments_options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.comments.id
   http_method = aws_api_gateway_method.comments_options.http_method
+
+  type = "MOCK"
+  request_templates = {
+    "application/json" = jsonencode({
+      statusCode = 200
+    })
+  }
+}
+
+resource "aws_api_gateway_integration" "collection_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.collection_status.id
+  http_method = aws_api_gateway_method.collection_status_options.http_method
 
   type = "MOCK"
   request_templates = {
@@ -293,6 +338,19 @@ resource "aws_api_gateway_method_response" "comments_options" {
   }
 }
 
+resource "aws_api_gateway_method_response" "collection_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.collection_status.id
+  http_method = aws_api_gateway_method.collection_status_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
 # Integration Responses for CORS
 resource "aws_api_gateway_integration_response" "channels_options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -338,6 +396,19 @@ resource "aws_api_gateway_integration_response" "comments_options" {
   resource_id = aws_api_gateway_resource.comments.id
   http_method = aws_api_gateway_method.comments_options.http_method
   status_code = aws_api_gateway_method_response.comments_options.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+}
+
+resource "aws_api_gateway_integration_response" "collection_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.collection_status.id
+  http_method = aws_api_gateway_method.collection_status_options.http_method
+  status_code = aws_api_gateway_method_response.collection_status_options.status_code
 
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
@@ -404,10 +475,12 @@ resource "aws_api_gateway_deployment" "main" {
     aws_api_gateway_integration.channel_id_delete,
     aws_api_gateway_integration.streams_get,
     aws_api_gateway_integration.comments_get,
+    aws_api_gateway_integration.collection_status_get,
     aws_api_gateway_integration.channels_options,
     aws_api_gateway_integration.channel_id_options,
     aws_api_gateway_integration.streams_options,
     aws_api_gateway_integration.comments_options,
+    aws_api_gateway_integration.collection_status_options,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id

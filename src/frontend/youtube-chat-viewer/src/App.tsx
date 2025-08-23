@@ -1,19 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import { apiService, Channel, Stream, SystemStats } from './services/api';
+import { apiService, Channel, Stream, SystemStats, CollectionStatus } from './services/api';
 import ChannelManager from './components/ChannelManager';
 
 /**
  * YouTube Live Chat Collector - メインアプリケーション
  * 
  * Phase 12 Step 2: チャンネル管理機能統合
+ * Phase 12 Step 3: コメント収集状況表示追加
  * - ダッシュボード表示
  * - チャンネル管理機能
  * - タブ切り替え
+ * - 実際のECSタスク実行状況表示
  */
 function App() {
   // ===== State管理 =====
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
+  const [collectionStatus, setCollectionStatus] = useState<CollectionStatus | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeStreams, setActiveStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,9 +33,10 @@ function App() {
       console.log('🔄 ダッシュボードデータ取得開始...');
 
       // 並列でデータ取得
-      const [channelsData, activeStreamsData] = await Promise.all([
+      const [channelsData, activeStreamsData, collectionStatusData] = await Promise.all([
         apiService.getChannels(),
         apiService.getActiveStreams(),
+        apiService.getCollectionStatus(),
       ]);
 
       // システム統計を計算
@@ -41,7 +45,7 @@ function App() {
         activeChannels: channelsData.filter(ch => ch.is_active).length,
         totalStreams: activeStreamsData.length,
         activeStreams: activeStreamsData.filter(s => ['live', 'upcoming'].includes(s.status)).length,
-        totalComments: 2917, // TODO: API実装後に動的取得
+        totalComments: collectionStatusData.today_comments, // 今日のコメント数を使用
         lastUpdate: new Date().toISOString(),
       };
 
@@ -49,11 +53,13 @@ function App() {
       setChannels(channelsData);
       setActiveStreams(activeStreamsData);
       setSystemStats(stats);
+      setCollectionStatus(collectionStatusData);
       setLastUpdate(new Date().toLocaleString('ja-JP'));
 
       console.log('✅ ダッシュボードデータ取得完了', {
         channels: channelsData.length,
         streams: activeStreamsData.length,
+        activeTasks: collectionStatusData.active_collections,
       });
 
     } catch (err) {
@@ -172,9 +178,9 @@ function App() {
                     <div className="stat-icon">💬</div>
                     <div className="stat-content">
                       <div className="stat-number">{systemStats.totalComments.toLocaleString()}</div>
-                      <div className="stat-label">収集コメント</div>
+                      <div className="stat-label">今日の収集コメント</div>
                       <div className="stat-detail">
-                        リアルタイム収集中
+                        実行中タスク: {collectionStatus?.active_collections || 0}
                       </div>
                     </div>
                   </div>
@@ -182,10 +188,12 @@ function App() {
                   <div className="stat-card">
                     <div className="stat-icon">⚡</div>
                     <div className="stat-content">
-                      <div className="stat-number">100%</div>
-                      <div className="stat-label">システム稼働率</div>
+                      <div className="stat-number">
+                        {collectionStatus?.active_collections || 0}
+                      </div>
+                      <div className="stat-label">コメント収集中</div>
                       <div className="stat-detail">
-                        全機能正常動作
+                        ECSタスク実行数
                       </div>
                     </div>
                   </div>
@@ -193,9 +201,59 @@ function App() {
               </section>
             )}
 
+            {/* コメント収集状況セクション */}
+            {collectionStatus && (
+              <section className="collection-section">
+                <h2>💬 コメント収集状況</h2>
+                <div className="collection-info">
+                  <div className="collection-summary">
+                    <div className="summary-item">
+                      <span className="summary-label">実行中タスク:</span>
+                      <span className="summary-value">{collectionStatus.active_collections}個</span>
+                    </div>
+                    <div className="summary-item">
+                      <span className="summary-label">今日の収集:</span>
+                      <span className="summary-value">{collectionStatus.today_comments.toLocaleString()}コメント</span>
+                    </div>
+                    <div className="summary-item">
+                      <span className="summary-label">最終収集:</span>
+                      <span className="summary-value">
+                        {collectionStatus.last_collection_time 
+                          ? new Date(collectionStatus.last_collection_time).toLocaleString('ja-JP')
+                          : '未実行'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {collectionStatus.running_video_ids.length > 0 && (
+                    <div className="running-tasks">
+                      <h3>収集中の配信:</h3>
+                      <div className="task-list">
+                        {collectionStatus.running_video_ids.map((videoId) => (
+                          <div key={videoId} className="task-item">
+                            <span className="task-status">🟢</span>
+                            <span className="task-video-id">{videoId}</span>
+                            <a 
+                              href={`https://www.youtube.com/watch?v=${videoId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="task-link"
+                            >
+                              YouTube で開く
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* アクティブ配信セクション */}
             <section className="streams-section">
-              <h2>🔴 アクティブ配信</h2>
+              <h2>🔴 検出済み配信</h2>
               {activeStreams.length > 0 ? (
                 <div className="streams-grid">
                   {activeStreams.slice(0, 6).map((stream) => (

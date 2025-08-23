@@ -14,19 +14,7 @@ resource "aws_cloudwatch_event_rule" "rss_monitor_schedule" {
   }
 }
 
-resource "aws_cloudwatch_event_target" "rss_monitor_target" {
-  rule      = aws_cloudwatch_event_rule.rss_monitor_schedule.name
-  target_id = "RSSMonitorLambdaTarget"
-  arn       = var.lambda_function_arns.rss_monitor
-}
-
-resource "aws_lambda_permission" "allow_eventbridge_rss_monitor" {
-  statement_id  = "AllowExecutionFromEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = var.lambda_function_names.rss_monitor
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.rss_monitor_schedule.arn
-}
+# RSS Monitor target and permission are managed in integration module
 
 # Stream Status Checker - 5分間隔実行（API クォータ削減のため）
 resource "aws_cloudwatch_event_rule" "stream_status_checker_schedule" {
@@ -48,7 +36,7 @@ resource "aws_cloudwatch_event_target" "stream_status_checker_target" {
 }
 
 resource "aws_lambda_permission" "allow_eventbridge_stream_status_checker" {
-  statement_id  = "AllowExecutionFromEventBridge"
+  statement_id  = "AllowExecutionFromEventBridge-StreamStatusChecker"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_function_names.stream_status_checker
   principal     = "events.amazonaws.com"
@@ -81,7 +69,7 @@ resource "aws_cloudwatch_event_target" "ecs_task_launcher_target" {
 }
 
 resource "aws_lambda_permission" "allow_eventbridge_ecs_task_launcher" {
-  statement_id  = "AllowExecutionFromEventBridge"
+  statement_id  = "AllowExecutionFromEventBridge-ECSTaskLauncher"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_function_names.ecs_task_launcher
   principal     = "events.amazonaws.com"

@@ -1,127 +1,121 @@
 ---
-# YouTube Live Chat Collector - Simple Frontend Deployment
-# 
-# シンプルなReact.jsデプロイプレイブック
-
+# Simplified Frontend Deployment Playbook
 - name: Deploy React.js Frontend to S3
   hosts: localhost
   connection: local
-  gather_facts: no
+  gather_facts: yes
   
+  vars:
+    # 固定値で設定
+    env_name: "dev"
+    project_root: "{{ playbook_dir }}/../.."
+    frontend_path: "{{ project_root }}/src/frontend/youtube-chat-viewer"
+    terraform_path: "{{ project_root }}/terraform/environments/dev"
+    
   tasks:
-    - name: Display deployment start
+    - name: Display deployment information
       debug:
-        msg: "🚀 React.js Frontend Deployment Starting..."
+        msg: |
+          🚀 YouTube Live Chat Collector - Frontend Deployment
+          Environment: {{ env_name }}
+          Frontend Path: {{ frontend_path }}
+          Terraform Path: {{ terraform_path }}
 
-    - name: Check frontend directory
+    - name: Check if frontend directory exists
       stat:
-        path: "{{ playbook_dir }}/../../src/frontend/youtube-chat-viewer"
+        path: "{{ frontend_path }}"
       register: frontend_dir
       
-    - name: Fail if frontend not found
+    - name: Fail if frontend directory not found
       fail:
-        msg: "Frontend directory not found"
+        msg: "Frontend directory not found: {{ frontend_path }}"
       when: not frontend_dir.stat.exists
 
-    - name: Get Terraform outputs
-      shell: terraform output -json
+    - name: Check Node.js version
+      command: node --version
+      register: node_version_check
+      changed_when: false
+      failed_when: false
+      
+    - name: Display Node.js version
+      debug:
+        msg: "Node.js version: {{ node_version_check.stdout | default('Not available') }}"
+
+    - name: Get Terraform outputs for S3 bucket information
+      command: terraform output -json
       args:
-        chdir: "{{ playbook_dir }}/../../terraform/environments/dev"
-      register: tf_outputs
+        chdir: "{{ terraform_path }}"
+      register: terraform_outputs
       changed_when: false
 
-    - name: Parse outputs
+    - name: Parse Terraform outputs
       set_fact:
-        bucket_name: "{{ (tf_outputs.stdout | from_json).frontend_bucket_name.value }}"
-        website_url: "{{ (tf_outputs.stdout | from_json).frontend_url.value }}"
-        api_url: "{{ (tf_outputs.stdout | from_json).api_gateway_url.value }}"
-        api_key_val: "{{ (tf_outputs.stdout | from_json).api_key.value }}"
+        s3_bucket_name: "{{ (terraform_outputs.stdout | from_json).frontend_bucket_name.value }}"
+        frontend_url: "{{ (terraform_outputs.stdout | from_json).frontend_url.value }}"
+        api_gateway_url: "{{ (terraform_outputs.stdout | from_json).api_gateway_url.value }}"
+        api_key: "{{ (terraform_outputs.stdout | from_json).api_key.value }}"
 
-    - name: Display deployment info
+    - name: Display S3 deployment information
       debug:
         msg: |
-          📦 Deployment Information:
-          S3 Bucket: {{ bucket_name }}
-          Website URL: {{ website_url }}
-          API URL: {{ api_url }}
+          📦 S3 Deployment Information:
+          Bucket Name: {{ s3_bucket_name }}
+          Frontend URL: {{ frontend_url }}
+          API Gateway URL: {{ api_gateway_url }}
 
-    - name: Create .env file
+    - name: Update .env file with current Terraform outputs
       copy:
         content: |
-          REACT_APP_API_BASE_URL={{ api_url }}
-          REACT_APP_API_KEY={{ api_key_val }}
+          REACT_APP_API_BASE_URL={{ api_gateway_url }}
+          REACT_APP_API_KEY={{ api_key }}
           REACT_APP_APP_NAME=YouTube Live Chat Collector
           REACT_APP_VERSION=1.0.0
-          REACT_APP_ENVIRONMENT=dev
+          REACT_APP_ENVIRONMENT={{ env_name }}
           REACT_APP_DEBUG=true
           GENERATE_SOURCEMAP=false
-        dest: "{{ playbook_dir }}/../../src/frontend/youtube-chat-viewer/.env"
-        mode: '0644'
+        dest: "{{ frontend_path }}/.env"
+        backup: yes
 
-    - name: Build React.js application
-      shell: npm run build
-      args:
-        chdir: "{{ playbook_dir }}/../../src/frontend/youtube-chat-viewer"
-      environment:
-        NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
-        CI: "true"
-
-    - name: Check build directory
-      stat:
-        path: "{{ playbook_dir }}/../../src/frontend/youtube-chat-viewer/build"
-      register: build_dir
-
-    - name: Fail if build failed
-      fail:
-        msg: "Build directory not found - npm run build failed"
-      when: not build_dir.stat.exists
-
-    - name: Verify S3 bucket access
-      shell: aws s3 ls s3://{{ bucket_name }}/
-      register: s3_check
-      failed_when: false
-
-    - name: Deploy to S3
-      shell: aws s3 sync build/ s3://{{ bucket_name }}/ --delete
-      args:
-        chdir: "{{ playbook_dir }}/../../src/frontend/youtube-chat-viewer"
-      when: s3_check.rc == 0
-
-    - name: Create deployment info
-      copy:
-        content: |
-          {
-            "deployment_time": "{{ ansible_date_time.iso8601 }}",
-            "environment": "dev",
-            "ansible_managed": true,
-            "react_build_deployed": true,
-            "website_url": "{{ website_url }}"
-          }
-        dest: /tmp/deployment-info.json
-
-    - name: Upload deployment info
-      shell: aws s3 cp /tmp/deployment-info.json s3://{{ bucket_name }}/deployment-info.json
-
-    - name: Test website
-      uri:
-        url: "{{ website_url }}"
-        method: GET
-        status_code: 200
-      register: website_test
-      retries: 3
-      delay: 5
-      ignore_errors: yes
-
-    - name: Display final result
+    - name: Display updated configuration
       debug:
         msg: |
-          🎉 Deployment Complete!
+          🔧 Configuration Updated:
+          API Base URL: {{ api_gateway_url }}
+          API Key: {{ api_key[:10] }}...
+          Environment: {{ env_name }}
+
+    - name: Clean previous build
+      file:
+        path: "{{ frontend_path }}/build"
+        state: absent
+
+    - name: Build React application with updated configuration
+      command: npm run build
+      args:
+        chdir: "{{ frontend_path }}"
+      register: build_result
+
+    - name: Display build result
+      debug:
+        msg: "Build completed successfully with updated configuration"
+      when: build_result.rc == 0
+
+    - name: Sync build files to S3
+      command: >
+        aws s3 sync {{ frontend_path }}/build/ 
+        s3://{{ s3_bucket_name }}/ 
+        --delete 
+        --region ap-northeast-1
+      register: s3_sync_result
+
+    - name: Display deployment result
+      debug:
+        msg: |
+          ✅ Frontend deployment completed!
           
-          Website URL: {{ website_url }}
-          S3 Bucket: {{ bucket_name }}
-          Website Test: {{ 'SUCCESS' if website_test.status == 200 else 'PENDING' }}
+          📦 Deployment Details:
+          - S3 Bucket: {{ s3_bucket_name }}
+          - Frontend URL: {{ frontend_url }}
+          - API Gateway URL: {{ api_gateway_url }}
           
-          Next Steps:
-          1. Open {{ website_url }} in browser
-          2. Check browser console for API connectivity
-          3. Test API calls in developer tools
+          🌐 Access your application at: {{ frontend_url }}

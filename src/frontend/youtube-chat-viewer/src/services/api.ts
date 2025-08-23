@@ -69,6 +69,30 @@ export interface SystemStats {
   lastUpdate: string;       // 最終更新時刻
 }
 
+/**
+ * コメント収集状況の型定義
+ * ECSタスクの実行状況とコメント収集実績
+ */
+export interface CollectionStatus {
+  active_collections: number;      // 実行中のコメント収集タスク数
+  running_video_ids: string[];     // 収集中の動画ID一覧
+  today_comments: number;          // 今日収集したコメント数
+  last_collection_time: string | null;  // 最後の収集時刻
+  task_details: TaskDetail[];      // タスク詳細情報
+  timestamp: string;               // 取得時刻
+}
+
+/**
+ * タスク詳細情報の型定義
+ */
+export interface TaskDetail {
+  video_id: string;          // 対象動画ID
+  task_status: string;       // タスク状態 (running/stopped/failed)
+  started_at: string;        // 開始時刻
+  channel_id?: string;       // チャンネルID
+  task_arn?: string;         // ECSタスクARN
+}
+
 // ===== API Serviceクラス =====
 
 /**
@@ -289,6 +313,23 @@ class ApiService {
   }
 
   // ===== システム統計メソッド =====
+
+  /**
+   * コメント収集状況を取得
+   * 
+   * @returns Promise<CollectionStatus> - コメント収集状況
+   * 
+   * 用途: ダッシュボードでの実際のコメント収集状況表示
+   * 
+   * 取得内容:
+   * - 実行中のECSタスク数
+   * - 収集中の動画ID一覧
+   * - 今日の収集コメント数
+   * - 最後の収集時刻
+   */
+  async getCollectionStatus(): Promise<CollectionStatus> {
+    return this.request<CollectionStatus>('/collection-status');
+  }
 
   /**
    * システム全体の統計情報を取得

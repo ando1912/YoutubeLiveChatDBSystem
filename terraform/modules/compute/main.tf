@@ -187,6 +187,7 @@ resource "aws_lambda_function" "api_handler" {
       DYNAMODB_TABLE_CHANNELS = var.dynamodb_table_names.channels
       DYNAMODB_TABLE_LIVESTREAMS = var.dynamodb_table_names.livestreams
       DYNAMODB_TABLE_COMMENTS = var.dynamodb_table_names.comments
+      TASKSTATUS_TABLE = var.dynamodb_table_names.taskstatus
     }
   }
 

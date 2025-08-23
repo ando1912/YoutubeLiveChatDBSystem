@@ -15,14 +15,14 @@
   
   vars:
     # デフォルト設定
-    deploy_env: "{{ deploy_env | default('dev') }}"
+    environment: "{{ deploy_env | default('dev') }}"
     build_only_mode: "{{ build_only | default(false) }}"
     force_rebuild: "{{ force_rebuild | default(false) }}"
     
     # プロジェクトパス
     project_root: "{{ playbook_dir }}/../.."
     frontend_path: "{{ project_root }}/src/frontend/youtube-chat-viewer"
-    terraform_path: "{{ project_root }}/terraform/environments/{{ deploy_env }}"
+    terraform_path: "{{ project_root }}/terraform/environments/{{ environment }}"
     
     # ビルド設定
     node_version_required: "18"
@@ -33,7 +33,7 @@
       debug:
         msg: |
           🚀 YouTube Live Chat Collector - Frontend Deployment
-          Environment: {{ deploy_env }}
+          Environment: {{ environment }}
           Build Only: {{ build_only_mode }}
           Force Rebuild: {{ force_rebuild }}
           Frontend Path: {{ frontend_path }}
@@ -94,4 +94,4 @@
         api_key_value: "{{ api_key | default('') }}"
         deploy_to_s3: "{{ not build_only_mode }}"
         force_clean_build: "{{ force_rebuild }}"
-        environment: "{{ deploy_env }}"
+        environment: "{{ environment }}"

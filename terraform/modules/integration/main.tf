@@ -9,7 +9,7 @@ resource "aws_cloudwatch_event_target" "rss_monitor_target" {
 
 # Lambda Permission for EventBridge (RSS Monitor)
 resource "aws_lambda_permission" "allow_eventbridge_rss_monitor" {
-  statement_id  = "AllowExecutionFromEventBridge"
+  statement_id  = "AllowExecutionFromEventBridge-RSSMonitor"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_function_names.rss_monitor
   principal     = "events.amazonaws.com"
@@ -25,7 +25,7 @@ resource "aws_cloudwatch_event_target" "stream_status_target" {
 
 # Lambda Permission for EventBridge (Stream Status Checker)
 resource "aws_lambda_permission" "allow_eventbridge_stream_status" {
-  statement_id  = "AllowExecutionFromEventBridge"
+  statement_id  = "AllowExecutionFromEventBridge-StreamStatus"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_function_names.stream_status_checker
   principal     = "events.amazonaws.com"

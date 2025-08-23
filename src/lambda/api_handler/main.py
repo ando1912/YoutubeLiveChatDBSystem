@@ -29,6 +29,7 @@ ssm = boto3.client('ssm')
 CHANNELS_TABLE = os.environ.get('CHANNELS_TABLE', 'dev-Channels')
 LIVESTREAMS_TABLE = os.environ.get('LIVESTREAMS_TABLE', 'dev-LiveStreams')
 COMMENTS_TABLE = os.environ.get('COMMENTS_TABLE', 'dev-Comments')
+TASKSTATUS_TABLE = os.environ.get('TASKSTATUS_TABLE', 'dev-TaskStatus')
 YOUTUBE_API_KEY_PARAM = os.environ.get('YOUTUBE_API_KEY_PARAM', '/dev/youtube-chat-collector/youtube-api-key')
 
 def get_youtube_api_key() -> Optional[str]:
@@ -164,6 +165,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if http_method == 'GET':
                 video_id = path_parameters.get('video_id')
                 return get_comments(video_id, query_parameters)
+                
+        elif path == '/collection-status':
+            if http_method == 'GET':
+                return get_collection_status(query_parameters)
         
         # 未対応のエンドポイント
         return create_response(404, {'error': 'Endpoint not found'})
@@ -591,6 +596,79 @@ def get_comments(video_id: str, query_params: Dict[str, str]) -> Dict[str, Any]:
     except ClientError as e:
         logger.error(f"DynamoDB error in get_comments: {str(e)}")
         return create_response(500, {'error': 'Database error'})
+
+def get_collection_status(query_params: Dict[str, str]) -> Dict[str, Any]:
+    """
+    コメント収集タスクの実行状況を取得
+    
+    Args:
+        query_params: クエリパラメータ
+        
+    Returns:
+        コメント収集状況のレスポンス
+    """
+    try:
+        table = dynamodb.Table(TASKSTATUS_TABLE)
+        
+        # 実行中のタスクを取得
+        response = table.scan(
+            FilterExpression='task_status = :status',
+            ExpressionAttributeValues={
+                ':status': 'running'
+            }
+        )
+        
+        running_tasks = response.get('Items', [])
+        
+        # 今日のコメント数を取得（簡易版）
+        today_comments = 0
+        try:
+            comments_table = dynamodb.Table(COMMENTS_TABLE)
+            today = datetime.now(timezone.utc).date().isoformat()
+            
+            # 今日のコメントを概算で取得（完全な実装は後で）
+            comments_response = comments_table.scan(
+                FilterExpression='begins_with(#ts, :today)',
+                ExpressionAttributeNames={'#ts': 'timestamp'},
+                ExpressionAttributeValues={':today': today},
+                Select='COUNT'
+            )
+            today_comments = comments_response.get('Count', 0)
+        except Exception as e:
+            logger.warning(f"Failed to get today's comment count: {str(e)}")
+            today_comments = 0
+        
+        # 最後の収集時刻を取得
+        last_collection_time = None
+        if running_tasks:
+            # 最新のタスクの開始時刻を使用
+            latest_task = max(running_tasks, key=lambda x: x.get('started_at', ''))
+            last_collection_time = latest_task.get('started_at')
+        
+        # 日時フィールドを文字列に変換
+        for task in running_tasks:
+            for field in ['started_at', 'updated_at']:
+                if field in task and hasattr(task[field], 'isoformat'):
+                    task[field] = task[field].isoformat()
+        
+        result = {
+            'active_collections': len(running_tasks),
+            'running_video_ids': [task.get('video_id', '') for task in running_tasks],
+            'today_comments': today_comments,
+            'last_collection_time': last_collection_time,
+            'task_details': running_tasks,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info(f"Collection status retrieved: {len(running_tasks)} active tasks")
+        return create_response(200, result)
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error in get_collection_status: {str(e)}")
+        return create_response(500, {'error': 'Database error'})
+    except Exception as e:
+        logger.error(f"Unexpected error in get_collection_status: {str(e)}")
+        return create_response(500, {'error': 'Internal server error'})
 
 def create_response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
     """
