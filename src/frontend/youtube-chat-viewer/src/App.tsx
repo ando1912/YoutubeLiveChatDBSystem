@@ -22,7 +22,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'channels'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'channels' | 'streams' | 'stream-detail'>('dashboard');
+  const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null);
 
   // ===== データ取得関数 =====
   const fetchDashboardData = async () => {
@@ -80,12 +81,22 @@ function App() {
   }, []);
 
   // ===== タブ切り替え処理 =====
-  const handleTabChange = (tab: 'dashboard' | 'channels') => {
+  const handleTabChange = (tab: 'dashboard' | 'channels' | 'streams' | 'stream-detail') => {
     setActiveTab(tab);
     // チャンネル管理タブに切り替えた時は最新データを取得
-    if (tab === 'channels') {
+    if (tab === 'channels' || tab === 'dashboard') {
       fetchDashboardData();
     }
+  };
+
+  const handleStreamClick = (videoId: string) => {
+    setSelectedStreamId(videoId);
+    setActiveTab('stream-detail');
+  };
+
+  const handleBackToDashboard = () => {
+    setSelectedStreamId(null);
+    setActiveTab('dashboard');
   };
 
   // ===== レンダリング =====
@@ -255,30 +266,82 @@ function App() {
             <section className="streams-section">
               <h2>🔴 検出済み配信</h2>
               {activeStreams.length > 0 ? (
-                <div className="streams-grid">
-                  {activeStreams.slice(0, 6).map((stream) => (
-                    <div key={stream.video_id} className="stream-card">
-                      <div className={`stream-status ${stream.status}`}>
-                        {stream.status === 'live' ? '🔴 LIVE' : 
-                         stream.status === 'upcoming' ? '⏰ 予約配信' : 
-                         '🆕 検出済み'}
+                <div className="streams-grid compact">
+                  {activeStreams.slice(0, 12).map((stream) => (
+                    <div 
+                      key={stream.video_id} 
+                      className="stream-card compact"
+                      onClick={() => handleStreamClick(stream.video_id)}
+                    >
+                      {/* 配信ステータスバッジ */}
+                      <div className={`stream-status-badge ${stream.status}`}>
+                        {stream.status === 'live' ? '🔴' : 
+                         stream.status === 'upcoming' ? '⏰' : 
+                         stream.status === 'ended' ? '⏹️' :
+                         '🆕'}
                       </div>
-                      <div className="stream-title">{stream.title}</div>
-                      <div className="stream-channel">
-                        チャンネル: {stream.channel_id}
+
+                      {/* サムネイル */}
+                      <div className="stream-thumbnail compact">
+                        <img 
+                          src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                          alt={stream.title}
+                          onError={(e) => {
+                            e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                          }}
+                        />
                       </div>
-                      <div className="stream-time">
-                        {stream.status === 'upcoming' && stream.scheduled_start_time
-                          ? `開始予定: ${new Date(stream.scheduled_start_time).toLocaleString('ja-JP')}`
-                          : `検出時刻: ${new Date(stream.created_at).toLocaleString('ja-JP')}`
-                        }
+
+                      {/* 配信情報 */}
+                      <div className="stream-info compact">
+                        {/* 配信タイトル */}
+                        <div className="stream-title compact" title={stream.title}>
+                          {stream.title.length > 40 ? 
+                            `${stream.title.substring(0, 40)}...` : 
+                            stream.title
+                          }
+                        </div>
+
+                        {/* チャンネル名 */}
+                        <div className="stream-channel compact">
+                          <span className="channel-name">
+                            {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                             'チャンネル不明'}
+                          </span>
+                        </div>
+
+                        {/* 配信状態 */}
+                        <div className={`stream-status-text ${stream.status}`}>
+                          {stream.status === 'live' ? 'ライブ配信中' : 
+                           stream.status === 'upcoming' ? '配信予定' : 
+                           stream.status === 'ended' ? '配信終了' :
+                           '検出済み'}
+                        </div>
+                      </div>
+
+                      {/* クリック可能インジケーター */}
+                      <div className="click-indicator">
+                        <span>詳細を見る →</span>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="no-data">
-                  現在アクティブな配信はありません
+                <div className="no-data compact">
+                  <div className="no-data-icon">📺</div>
+                  <div className="no-data-text">現在検出済みの配信はありません</div>
+                </div>
+              )}
+              
+              {/* 全て表示ボタン */}
+              {activeStreams.length > 12 && (
+                <div className="show-all-streams">
+                  <button 
+                    className="show-all-btn"
+                    onClick={() => setActiveTab('streams')}
+                  >
+                    全ての配信を表示 ({activeStreams.length}件)
+                  </button>
                 </div>
               )}
             </section>
@@ -310,6 +373,184 @@ function App() {
             channels={channels}
             onChannelsUpdate={fetchDashboardData}
           />
+        )}
+
+        {/* 配信詳細ページ */}
+        {activeTab === 'stream-detail' && selectedStreamId && (
+          <div className="stream-detail-page">
+            {/* 戻るボタン */}
+            <div className="detail-header">
+              <button 
+                className="back-btn"
+                onClick={handleBackToDashboard}
+              >
+                ← ダッシュボードに戻る
+              </button>
+            </div>
+
+            {(() => {
+              const stream = activeStreams.find(s => s.video_id === selectedStreamId);
+              if (!stream) {
+                return (
+                  <div className="stream-not-found">
+                    <h2>配信が見つかりません</h2>
+                    <p>指定された配信情報が見つかりませんでした。</p>
+                  </div>
+                );
+              }
+
+              const channel = channels.find(ch => ch.channel_id === stream.channel_id);
+
+              return (
+                <div className="stream-detail-content">
+                  {/* 配信ヘッダー */}
+                  <div className="stream-header">
+                    <div className="stream-thumbnail-large">
+                      <img 
+                        src={`https://i.ytimg.com/vi/${stream.video_id}/maxresdefault.jpg`}
+                        alt={stream.title}
+                        onError={(e) => {
+                          e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`;
+                        }}
+                      />
+                      <div className={`status-overlay ${stream.status}`}>
+                        {stream.status === 'live' ? '🔴 LIVE' : 
+                         stream.status === 'upcoming' ? '⏰ 予約配信' : 
+                         stream.status === 'ended' ? '⏹️ 終了' :
+                         '🆕 検出済み'}
+                      </div>
+                    </div>
+                    
+                    <div className="stream-meta">
+                      <h1 className="stream-title-large">{stream.title}</h1>
+                      <div className="channel-info-large">
+                        <span className="channel-name-large">
+                          {channel?.channel_name || 'チャンネル不明'}
+                        </span>
+                        <span className="channel-id">({stream.channel_id})</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 配信詳細情報 */}
+                  <div className="stream-details">
+                    <div className="detail-section">
+                      <h3>📅 配信時間情報</h3>
+                      <div className="timing-details">
+                        {stream.status === 'live' && stream.started_at && (
+                          <div className="timing-row">
+                            <span className="timing-label">🔴 配信開始:</span>
+                            <span className="timing-value">
+                              {new Date(stream.started_at).toLocaleString('ja-JP')}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {stream.status === 'upcoming' && stream.scheduled_start_time && (
+                          <div className="timing-row">
+                            <span className="timing-label">⏰ 開始予定:</span>
+                            <span className="timing-value">
+                              {new Date(stream.scheduled_start_time).toLocaleString('ja-JP')}
+                            </span>
+                          </div>
+                        )}
+
+                        {stream.status === 'ended' && stream.started_at && stream.ended_at && (
+                          <>
+                            <div className="timing-row">
+                              <span className="timing-label">📅 配信期間:</span>
+                              <span className="timing-value">
+                                {new Date(stream.started_at).toLocaleString('ja-JP')} 
+                                {' ～ '}
+                                {new Date(stream.ended_at).toLocaleString('ja-JP')}
+                              </span>
+                            </div>
+                            <div className="timing-row">
+                              <span className="timing-label">⏱️ 配信時間:</span>
+                              <span className="timing-value">
+                                {(() => {
+                                  const start = new Date(stream.started_at);
+                                  const end = new Date(stream.ended_at);
+                                  const duration = Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
+                                  const hours = Math.floor(duration / 60);
+                                  const minutes = duration % 60;
+                                  return hours > 0 ? `${hours}時間${minutes}分` : `${minutes}分`;
+                                })()}
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="timing-row">
+                          <span className="timing-label">🆕 検出時刻:</span>
+                          <span className="timing-value">
+                            {new Date(stream.created_at).toLocaleString('ja-JP')}
+                          </span>
+                        </div>
+
+                        {stream.updated_at && (
+                          <div className="timing-row">
+                            <span className="timing-label">🔄 最終更新:</span>
+                            <span className="timing-value">
+                              {new Date(stream.updated_at).toLocaleString('ja-JP')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 配信説明 */}
+                    {stream.description && (
+                      <div className="detail-section">
+                        <h3>📝 配信説明</h3>
+                        <div className="description-full">
+                          {stream.description.split('\n').map((line, index) => (
+                            <p key={index}>{line}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* アクション */}
+                    <div className="detail-section">
+                      <h3>🔗 アクション</h3>
+                      <div className="action-buttons">
+                        <a 
+                          href={`https://www.youtube.com/watch?v=${stream.video_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="action-btn youtube large"
+                        >
+                          🎥 YouTube で見る
+                        </a>
+                        
+                        {stream.status === 'live' && (
+                          <button 
+                            className="action-btn comments large"
+                            onClick={() => {
+                              alert(`${stream.video_id} のコメント表示機能は開発中です`);
+                            }}
+                          >
+                            💬 コメント表示
+                          </button>
+                        )}
+
+                        <button 
+                          className="action-btn info large"
+                          onClick={() => {
+                            navigator.clipboard.writeText(stream.video_id);
+                            alert('動画IDをクリップボードにコピーしました');
+                          }}
+                        >
+                          📋 動画IDをコピー
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         )}
       </main>
 

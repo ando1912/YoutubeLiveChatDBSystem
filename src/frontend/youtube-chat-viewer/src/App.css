@@ -548,3 +548,782 @@ section h2 {
   background: #3b82f6;
   color: white;
 }
+/* ===== 検出済み配信セクション (改善版) ===== */
+.streams-section {
+  margin: 2rem 0;
+}
+
+.streams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+/* 改善された配信カード */
+.stream-card.enhanced {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.stream-card.enhanced:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* ステータスバッジ */
+.stream-status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  z-index: 2;
+  backdrop-filter: blur(10px);
+}
+
+.stream-status-badge.live {
+  background: rgba(255, 0, 0, 0.9);
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+.stream-status-badge.upcoming {
+  background: rgba(255, 165, 0, 0.9);
+  color: white;
+}
+
+.stream-status-badge.ended {
+  background: rgba(128, 128, 128, 0.9);
+  color: white;
+}
+
+.stream-status-badge.detected {
+  background: rgba(0, 123, 255, 0.9);
+  color: white;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+/* サムネイル */
+.stream-thumbnail {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+}
+
+.stream-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.stream-card.enhanced:hover .stream-thumbnail img {
+  transform: scale(1.05);
+}
+
+.thumbnail-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  padding: 20px 15px 15px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.stream-card.enhanced:hover .thumbnail-overlay {
+  opacity: 1;
+}
+
+.youtube-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 0, 0, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.youtube-link:hover {
+  background: #ff0000;
+  transform: scale(1.05);
+}
+
+/* 配信情報 */
+.stream-info {
+  padding: 1.5rem;
+}
+
+.stream-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 1rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* チャンネル情報 */
+.stream-channel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 1rem;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.channel-icon {
+  font-size: 1.1rem;
+}
+
+.channel-name {
+  font-weight: 500;
+  color: #495057;
+}
+
+/* 配信時間情報 */
+.stream-timing {
+  margin-bottom: 1rem;
+}
+
+.timing-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.timing-item:last-child {
+  border-bottom: none;
+}
+
+.timing-label {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.timing-value {
+  font-size: 0.9rem;
+  color: #495057;
+  font-weight: 600;
+}
+
+.timing-item.live .timing-value {
+  color: #dc3545;
+}
+
+.timing-item.upcoming .timing-value {
+  color: #fd7e14;
+}
+
+.timing-item.ended .timing-value {
+  color: #6c757d;
+}
+
+.timing-item.detected .timing-value {
+  color: #007bff;
+}
+
+.duration {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f3f4;
+}
+
+.duration-label {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.duration-value {
+  font-size: 0.85rem;
+  color: #495057;
+  font-weight: 600;
+}
+
+/* 配信説明 */
+.stream-description {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 1rem;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.description-icon {
+  font-size: 1rem;
+  margin-top: 2px;
+}
+
+.description-text {
+  font-size: 0.9rem;
+  color: #495057;
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* アクション */
+.stream-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn.youtube {
+  background: linear-gradient(135deg, #ff0000, #cc0000);
+  color: white;
+}
+
+.action-btn.youtube:hover {
+  background: linear-gradient(135deg, #cc0000, #990000);
+  transform: translateY(-2px);
+}
+
+.action-btn.comments {
+  background: linear-gradient(135deg, #28a745, #20c997);
+  color: white;
+}
+
+.action-btn.comments:hover {
+  background: linear-gradient(135deg, #20c997, #17a2b8);
+  transform: translateY(-2px);
+}
+
+/* データなし表示の改善 */
+.no-data {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.no-data-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.6;
+}
+
+.no-data-text {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 0.5rem;
+}
+
+.no-data-subtext {
+  font-size: 0.95rem;
+  color: #6c757d;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .streams-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .stream-card.enhanced {
+    margin: 0 1rem;
+  }
+  
+  .stream-thumbnail {
+    height: 180px;
+  }
+  
+  .stream-info {
+    padding: 1rem;
+  }
+  
+  .stream-actions {
+    flex-direction: column;
+  }
+  
+  .action-btn {
+    justify-content: center;
+  }
+}
+/* ===== コンパクトな配信カード ===== */
+.streams-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.stream-card.compact {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: all 0.2s ease;
+  position: relative;
+  cursor: pointer;
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.stream-card.compact:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* コンパクトステータスバッジ */
+.stream-card.compact .stream-status-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+}
+
+/* コンパクトサムネイル */
+.stream-thumbnail.compact {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  overflow: hidden;
+}
+
+.stream-thumbnail.compact img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* コンパクト配信情報 */
+.stream-info.compact {
+  padding: 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stream-title.compact {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stream-channel.compact {
+  margin-bottom: 8px;
+}
+
+.stream-channel.compact .channel-name {
+  font-size: 0.8rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.stream-status-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.stream-status-text.live {
+  background: #fee;
+  color: #dc3545;
+}
+
+.stream-status-text.upcoming {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.stream-status-text.ended {
+  background: #f8f9fa;
+  color: #6c757d;
+}
+
+.stream-status-text.detected {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+/* クリック可能インジケーター */
+.click-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  color: white;
+  padding: 20px 12px 8px;
+  font-size: 0.75rem;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.stream-card.compact:hover .click-indicator {
+  opacity: 1;
+}
+
+/* 全て表示ボタン */
+.show-all-streams {
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.show-all-btn {
+  background: linear-gradient(135deg, #007bff, #0056b3);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.show-all-btn:hover {
+  background: linear-gradient(135deg, #0056b3, #004085);
+  transform: translateY(-2px);
+}
+
+/* コンパクトなデータなし表示 */
+.no-data.compact {
+  text-align: center;
+  padding: 2rem 1rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.no-data.compact .no-data-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.6;
+}
+
+.no-data.compact .no-data-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+/* ===== 配信詳細ページ ===== */
+.stream-detail-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.detail-header {
+  margin-bottom: 2rem;
+}
+
+.back-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
+}
+
+.stream-not-found {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stream-detail-content {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+/* 配信ヘッダー */
+.stream-header {
+  position: relative;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2rem;
+}
+
+.stream-thumbnail-large {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.stream-thumbnail-large img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.status-overlay {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+}
+
+.status-overlay.live {
+  background: rgba(255, 0, 0, 0.9);
+  animation: pulse 2s infinite;
+}
+
+.status-overlay.upcoming {
+  background: rgba(255, 165, 0, 0.9);
+}
+
+.status-overlay.ended {
+  background: rgba(128, 128, 128, 0.9);
+}
+
+.status-overlay.detected {
+  background: rgba(0, 123, 255, 0.9);
+}
+
+.stream-meta {
+  text-align: center;
+}
+
+.stream-title-large {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  line-height: 1.3;
+}
+
+.channel-info-large {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.channel-name-large {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.channel-id {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+/* 配信詳細セクション */
+.stream-details {
+  padding: 2rem;
+}
+
+.detail-section {
+  margin-bottom: 2rem;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-section h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+/* タイミング詳細 */
+.timing-details {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.timing-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.timing-row:last-child {
+  border-bottom: none;
+}
+
+.timing-row .timing-label {
+  font-weight: 500;
+  color: #6c757d;
+}
+
+.timing-row .timing-value {
+  font-weight: 600;
+  color: #495057;
+}
+
+/* 配信説明 */
+.description-full {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border-left: 4px solid #007bff;
+}
+
+.description-full p {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+  color: #495057;
+}
+
+.description-full p:last-child {
+  margin-bottom: 0;
+}
+
+/* アクションボタン */
+.action-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.action-btn.large {
+  padding: 12px 24px;
+  font-size: 1rem;
+  border-radius: 8px;
+}
+
+.action-btn.info {
+  background: linear-gradient(135deg, #17a2b8, #138496);
+  color: white;
+}
+
+.action-btn.info:hover {
+  background: linear-gradient(135deg, #138496, #117a8b);
+  transform: translateY(-2px);
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .streams-grid.compact {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.8rem;
+  }
+  
+  .stream-card.compact {
+    height: 250px;
+  }
+  
+  .stream-thumbnail.compact {
+    height: 100px;
+  }
+  
+  .stream-info.compact {
+    padding: 10px;
+  }
+  
+  .stream-title.compact {
+    font-size: 0.8rem;
+  }
+  
+  .stream-header {
+    padding: 1.5rem 1rem;
+  }
+  
+  .stream-title-large {
+    font-size: 1.4rem;
+  }
+  
+  .channel-name-large {
+    font-size: 1rem;
+  }
+  
+  .stream-details {
+    padding: 1.5rem 1rem;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+  
+  .timing-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}

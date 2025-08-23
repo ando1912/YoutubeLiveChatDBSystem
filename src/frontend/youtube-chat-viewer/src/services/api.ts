@@ -33,8 +33,12 @@ export interface Stream {
   created_at: string;            // 検出日時 (ISO 8601形式)
   updated_at?: string;           // 最終更新日時
   scheduled_start_time?: string; // 開始予定時刻 (upcoming時)
-  actual_start_time?: string;    // 実際の開始時刻 (live時)
-  actual_end_time?: string;      // 実際の終了時刻 (ended時)
+  actual_start_time?: string;    // 実際の開始時刻 (live時) - 旧フィールド名
+  actual_end_time?: string;      // 実際の終了時刻 (ended時) - 旧フィールド名
+  started_at?: string;           // 実際の開始時刻 (live時) - 新フィールド名
+  ended_at?: string;             // 実際の終了時刻 (ended時) - 新フィールド名
+  published_at?: string;         // 配信公開日時
+  description?: string;          // 配信説明文
 }
 
 /**
