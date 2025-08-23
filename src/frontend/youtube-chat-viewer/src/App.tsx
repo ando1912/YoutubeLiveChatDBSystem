@@ -8,11 +8,57 @@ import ChannelManager from './components/ChannelManager';
  * 
  * Phase 12 Step 2: チャンネル管理機能統合
  * Phase 12 Step 3: コメント収集状況表示追加
- * - ダッシュボード表示
- * - チャンネル管理機能
- * - タブ切り替え
+ * Phase 17 Step 1: HTML5 History APIルーティング機能追加
+ * - ダッシュボード表示 (/)
+ * - チャンネル管理機能 (/channels)
+ * - 配信一覧 (/streams)
+ * - 配信詳細ページ (/streams/:id)
+ * - URL識別子管理
  * - 実際のECSタスク実行状況表示
  */
+
+// URLパスからタブを取得する関数
+const getTabFromPath = (): 'dashboard' | 'channels' | 'streams' | 'stream-detail' => {
+  const path = window.location.pathname;
+  if (path === '/' || path === '/dashboard') {
+    return 'dashboard';
+  } else if (path === '/channels') {
+    return 'channels';
+  } else if (path === '/streams') {
+    return 'streams';
+  } else if (path.startsWith('/streams/')) {
+    return 'stream-detail';
+  }
+  return 'dashboard';
+};
+
+// URLパスから配信IDを取得する関数
+const getStreamIdFromPath = (): string | null => {
+  const path = window.location.pathname;
+  const match = path.match(/^\/streams\/(.+)$/);
+  return match ? match[1] : null;
+};
+
+// タブをURLパスに設定する関数
+const setPathFromTab = (tab: 'dashboard' | 'channels' | 'streams' | 'stream-detail', streamId?: string) => {
+  let path = '/';
+  switch (tab) {
+    case 'dashboard':
+      path = '/';
+      break;
+    case 'channels':
+      path = '/channels';
+      break;
+    case 'streams':
+      path = '/streams';
+      break;
+    case 'stream-detail':
+      path = streamId ? `/streams/${streamId}` : '/streams';
+      break;
+  }
+  window.history.pushState({}, '', path);
+};
+
 function App() {
   // ===== State管理 =====
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
@@ -22,8 +68,35 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'channels' | 'streams' | 'stream-detail'>('dashboard');
-  const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'channels' | 'streams' | 'stream-detail'>(getTabFromPath());
+  const [selectedStreamId, setSelectedStreamId] = useState<string | null>(getStreamIdFromPath());
+
+  // ===== URL管理 =====
+  // ページ読み込み時にURLパスからタブを設定
+  useEffect(() => {
+    const handlePopState = () => {
+      const newTab = getTabFromPath();
+      const newStreamId = getStreamIdFromPath();
+      setActiveTab(newTab);
+      setSelectedStreamId(newStreamId);
+    };
+
+    // ブラウザの戻る/進むボタン対応
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // タブ変更時にURLパスを更新
+  const handleTabChange = (tab: 'dashboard' | 'channels' | 'streams' | 'stream-detail', streamId?: string) => {
+    setActiveTab(tab);
+    if (streamId) {
+      setSelectedStreamId(streamId);
+    }
+    setPathFromTab(tab, streamId);
+  };
 
   // ===== データ取得関数 =====
   const fetchDashboardData = async () => {
@@ -80,23 +153,12 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // ===== タブ切り替え処理 =====
-  const handleTabChange = (tab: 'dashboard' | 'channels' | 'streams' | 'stream-detail') => {
-    setActiveTab(tab);
-    // チャンネル管理タブに切り替えた時は最新データを取得
-    if (tab === 'channels' || tab === 'dashboard') {
-      fetchDashboardData();
-    }
-  };
-
   const handleStreamClick = (videoId: string) => {
-    setSelectedStreamId(videoId);
-    setActiveTab('stream-detail');
+    handleTabChange('stream-detail', videoId);
   };
 
   const handleBackToDashboard = () => {
-    setSelectedStreamId(null);
-    setActiveTab('dashboard');
+    handleTabChange('dashboard');
   };
 
   // ===== レンダリング =====
@@ -134,6 +196,12 @@ function App() {
             onClick={() => handleTabChange('channels')}
           >
             📺 チャンネル管理
+          </button>
+          <button 
+            className={`nav-tab ${activeTab === 'streams' ? 'active' : ''}`}
+            onClick={() => handleTabChange('streams')}
+          >
+            🔴 配信一覧
           </button>
         </div>
       </nav>
@@ -266,65 +334,162 @@ function App() {
             <section className="streams-section">
               <h2>🔴 検出済み配信</h2>
               {activeStreams.length > 0 ? (
-                <div className="streams-grid compact">
-                  {activeStreams.slice(0, 12).map((stream) => (
-                    <div 
-                      key={stream.video_id} 
-                      className="stream-card compact"
-                      onClick={() => handleStreamClick(stream.video_id)}
-                    >
-                      {/* 配信ステータスバッジ */}
-                      <div className={`stream-status-badge ${stream.status}`}>
-                        {stream.status === 'live' ? '🔴' : 
-                         stream.status === 'upcoming' ? '⏰' : 
-                         stream.status === 'ended' ? '⏹️' :
-                         '🆕'}
-                      </div>
+                <div className="streams-container">
+                  {/* 配信中のライブ */}
+                  {(() => {
+                    const liveStreams = activeStreams
+                      .filter(stream => ['live', 'upcoming'].includes(stream.status))
+                      .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                    
+                    return liveStreams.length > 0 ? (
+                      <div className="stream-category">
+                        <h3 className="category-title">
+                          🔴 配信中のライブ ({liveStreams.length}件)
+                        </h3>
+                        <div className="streams-scroll-container">
+                          <div className="streams-grid compact">
+                            {liveStreams.slice(0, 6).map((stream) => (
+                              <div 
+                                key={stream.video_id} 
+                                className="stream-card compact live"
+                                onClick={() => handleStreamClick(stream.video_id)}
+                              >
+                                {/* 配信ステータスバッジ */}
+                                <div className={`stream-status-badge ${stream.status}`}>
+                                  {stream.status === 'live' ? '🔴' : '⏰'}
+                                </div>
 
-                      {/* サムネイル */}
-                      <div className="stream-thumbnail compact">
-                        <img 
-                          src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
-                          alt={stream.title}
-                          onError={(e) => {
-                            e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
-                          }}
-                        />
-                      </div>
+                                {/* サムネイル */}
+                                <div className="stream-thumbnail compact">
+                                  <img 
+                                    src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                    alt={stream.title}
+                                    onError={(e) => {
+                                      e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                    }}
+                                  />
+                                </div>
 
-                      {/* 配信情報 */}
-                      <div className="stream-info compact">
-                        {/* 配信タイトル */}
-                        <div className="stream-title compact" title={stream.title}>
-                          {stream.title.length > 40 ? 
-                            `${stream.title.substring(0, 40)}...` : 
-                            stream.title
-                          }
+                                {/* 配信情報 */}
+                                <div className="stream-info compact">
+                                  <div className="stream-title compact" title={stream.title}>
+                                    {stream.title.length > 35 ? 
+                                      `${stream.title.substring(0, 35)}...` : 
+                                      stream.title
+                                    }
+                                  </div>
+
+                                  <div className="stream-channel compact">
+                                    <span className="channel-name">
+                                      {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                       'チャンネル不明'}
+                                    </span>
+                                  </div>
+
+                                  <div className="stream-time compact">
+                                    {stream.published_at ? 
+                                      new Date(stream.published_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      }) :
+                                      new Date(stream.created_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      })
+                                    }
+                                  </div>
+
+                                  <div className={`stream-status-text ${stream.status}`}>
+                                    {stream.status === 'live' ? 'ライブ配信中' : '配信予定'}
+                                  </div>
+                                </div>
+
+                                <div className="click-indicator">
+                                  <span>詳細 →</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
+                      </div>
+                    ) : null;
+                  })()}
 
-                        {/* チャンネル名 */}
-                        <div className="stream-channel compact">
-                          <span className="channel-name">
-                            {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
-                             'チャンネル不明'}
-                          </span>
-                        </div>
+                  {/* 配信が終了したライブ */}
+                  {(() => {
+                    const endedStreams = activeStreams
+                      .filter(stream => ['ended', 'none'].includes(stream.status))
+                      .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                    
+                    return endedStreams.length > 0 ? (
+                      <div className="stream-category">
+                        <h3 className="category-title">
+                          ⏹️ 配信が終了したライブ ({endedStreams.length}件)
+                        </h3>
+                        <div className="streams-scroll-container">
+                          <div className="streams-grid compact">
+                            {endedStreams.slice(0, 6).map((stream) => (
+                              <div 
+                                key={stream.video_id} 
+                                className="stream-card compact ended"
+                                onClick={() => handleStreamClick(stream.video_id)}
+                              >
+                                {/* 配信ステータスバッジ */}
+                                <div className={`stream-status-badge ${stream.status}`}>
+                                  ⏹️
+                                </div>
 
-                        {/* 配信状態 */}
-                        <div className={`stream-status-text ${stream.status}`}>
-                          {stream.status === 'live' ? 'ライブ配信中' : 
-                           stream.status === 'upcoming' ? '配信予定' : 
-                           stream.status === 'ended' ? '配信終了' :
-                           '検出済み'}
+                                {/* サムネイル */}
+                                <div className="stream-thumbnail compact">
+                                  <img 
+                                    src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                    alt={stream.title}
+                                    onError={(e) => {
+                                      e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                    }}
+                                  />
+                                </div>
+
+                                {/* 配信情報 */}
+                                <div className="stream-info compact">
+                                  <div className="stream-title compact" title={stream.title}>
+                                    {stream.title.length > 35 ? 
+                                      `${stream.title.substring(0, 35)}...` : 
+                                      stream.title
+                                    }
+                                  </div>
+
+                                  <div className="stream-channel compact">
+                                    <span className="channel-name">
+                                      {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                       'チャンネル不明'}
+                                    </span>
+                                  </div>
+
+                                  <div className="stream-time compact">
+                                    {stream.published_at ? 
+                                      new Date(stream.published_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      }) :
+                                      new Date(stream.created_at).toLocaleString('ja-JP', {
+                                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      })
+                                    }
+                                  </div>
+
+                                  <div className={`stream-status-text ${stream.status}`}>
+                                    配信終了
+                                  </div>
+                                </div>
+
+                                <div className="click-indicator">
+                                  <span>詳細 →</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-
-                      {/* クリック可能インジケーター */}
-                      <div className="click-indicator">
-                        <span>詳細を見る →</span>
-                      </div>
-                    </div>
-                  ))}
+                    ) : null;
+                  })()}
                 </div>
               ) : (
                 <div className="no-data compact">
@@ -338,7 +503,7 @@ function App() {
                 <div className="show-all-streams">
                   <button 
                     className="show-all-btn"
-                    onClick={() => setActiveTab('streams')}
+                    onClick={() => handleTabChange('streams')}
                   >
                     全ての配信を表示 ({activeStreams.length}件)
                   </button>
@@ -375,6 +540,141 @@ function App() {
           />
         )}
 
+        {/* 配信一覧ページ */}
+        {activeTab === 'streams' && (
+          <div className="streams-list-page">
+            <h1>🔴 配信一覧</h1>
+            {activeStreams.length > 0 ? (
+              <div className="streams-container">
+                {/* 配信中のライブ */}
+                {(() => {
+                  const liveStreams = activeStreams
+                    .filter(stream => ['live', 'upcoming'].includes(stream.status))
+                    .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                  
+                  return liveStreams.length > 0 ? (
+                    <div className="stream-category">
+                      <h2 className="category-title">
+                        🔴 配信中のライブ ({liveStreams.length}件)
+                      </h2>
+                      <div className="streams-grid">
+                        {liveStreams.map((stream) => (
+                          <div 
+                            key={stream.video_id} 
+                            className="stream-card"
+                            onClick={() => handleStreamClick(stream.video_id)}
+                          >
+                            <div className={`stream-status-badge ${stream.status}`}>
+                              {stream.status === 'live' ? '🔴' : '⏰'}
+                            </div>
+                            <div className="stream-thumbnail">
+                              <img 
+                                src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                alt={stream.title}
+                                onError={(e) => {
+                                  e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                }}
+                              />
+                            </div>
+                            <div className="stream-info">
+                              <div className="stream-title" title={stream.title}>
+                                {stream.title}
+                              </div>
+                              <div className="stream-channel">
+                                <span className="channel-name">
+                                  {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                   'チャンネル不明'}
+                                </span>
+                              </div>
+                              <div className="stream-time">
+                                {stream.published_at ? 
+                                  new Date(stream.published_at).toLocaleString('ja-JP') :
+                                  new Date(stream.created_at).toLocaleString('ja-JP')
+                                }
+                              </div>
+                              <div className={`stream-status-text ${stream.status}`}>
+                                {stream.status === 'live' ? 'ライブ配信中' : '配信予定'}
+                              </div>
+                            </div>
+                            <div className="click-indicator">
+                              <span>詳細を見る →</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* 配信が終了したライブ */}
+                {(() => {
+                  const endedStreams = activeStreams
+                    .filter(stream => ['ended', 'none'].includes(stream.status))
+                    .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+                  
+                  return endedStreams.length > 0 ? (
+                    <div className="stream-category">
+                      <h2 className="category-title">
+                        ⏹️ 配信が終了したライブ ({endedStreams.length}件)
+                      </h2>
+                      <div className="streams-grid">
+                        {endedStreams.map((stream) => (
+                          <div 
+                            key={stream.video_id} 
+                            className="stream-card ended"
+                            onClick={() => handleStreamClick(stream.video_id)}
+                          >
+                            <div className={`stream-status-badge ${stream.status}`}>
+                              ⏹️
+                            </div>
+                            <div className="stream-thumbnail">
+                              <img 
+                                src={`https://i.ytimg.com/vi/${stream.video_id}/hqdefault.jpg`}
+                                alt={stream.title}
+                                onError={(e) => {
+                                  e.currentTarget.src = `https://i.ytimg.com/vi/${stream.video_id}/mqdefault.jpg`;
+                                }}
+                              />
+                            </div>
+                            <div className="stream-info">
+                              <div className="stream-title" title={stream.title}>
+                                {stream.title}
+                              </div>
+                              <div className="stream-channel">
+                                <span className="channel-name">
+                                  {channels.find(ch => ch.channel_id === stream.channel_id)?.channel_name || 
+                                   'チャンネル不明'}
+                                </span>
+                              </div>
+                              <div className="stream-time">
+                                {stream.published_at ? 
+                                  new Date(stream.published_at).toLocaleString('ja-JP') :
+                                  new Date(stream.created_at).toLocaleString('ja-JP')
+                                }
+                              </div>
+                              <div className={`stream-status-text ${stream.status}`}>
+                                配信終了
+                              </div>
+                            </div>
+                            <div className="click-indicator">
+                              <span>詳細を見る →</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            ) : (
+              <div className="no-data">
+                <div className="no-data-icon">📺</div>
+                <div className="no-data-text">現在検出済みの配信はありません</div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 配信詳細ページ */}
         {activeTab === 'stream-detail' && selectedStreamId && (
           <div className="stream-detail-page">
@@ -382,9 +682,9 @@ function App() {
             <div className="detail-header">
               <button 
                 className="back-btn"
-                onClick={handleBackToDashboard}
+                onClick={() => handleTabChange('streams')}
               >
-                ← ダッシュボードに戻る
+                ← 配信一覧に戻る
               </button>
             </div>
 

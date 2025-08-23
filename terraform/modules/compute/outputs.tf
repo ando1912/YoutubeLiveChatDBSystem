@@ -43,3 +43,11 @@ output "api_handler_lambda" {
     invoke_arn   = aws_lambda_function.api_handler.invoke_arn
   }
 }
+
+output "codebuild_project" {
+  description = "CodeBuild project details"
+  value = {
+    name = aws_codebuild_project.comment_collector.name
+    arn  = aws_codebuild_project.comment_collector.arn
+  }
+}

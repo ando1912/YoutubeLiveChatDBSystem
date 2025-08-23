@@ -33,7 +33,49 @@ TASK_STATUS_TABLE = os.environ.get('DYNAMODB_TABLE_TASKSTATUS', 'dev-TaskStatus'
 SUBNET_IDS = os.environ.get('ECS_SUBNETS', '').split(',')
 SECURITY_GROUP_IDS = os.environ.get('ECS_SECURITY_GROUPS', '').split(',')
 
+def check_running_tasks_for_video(video_id: str) -> List[str]:
+    """
+    指定された動画IDで実行中のECSタスクを確認
+    
+    Args:
+        video_id: YouTube動画ID
+        
+    Returns:
+        実行中のタスクARNのリスト
+    """
+    try:
+        # 実行中のタスク一覧を取得
+        response = ecs.list_tasks(
+            cluster=ECS_CLUSTER_NAME,
+            desiredStatus='RUNNING'
+        )
+        
+        if not response.get('taskArns'):
+            return []
+        
+        # タスクの詳細を取得
+        tasks_response = ecs.describe_tasks(
+            cluster=ECS_CLUSTER_NAME,
+            tasks=response['taskArns']
+        )
+        
+        running_tasks = []
+        for task in tasks_response.get('tasks', []):
+            # 環境変数からVIDEO_IDを確認
+            for container_override in task.get('overrides', {}).get('containerOverrides', []):
+                for env_var in container_override.get('environment', []):
+                    if env_var.get('name') == 'VIDEO_ID' and env_var.get('value') == video_id:
+                        running_tasks.append(task['taskArn'])
+                        break
+        
+        return running_tasks
+        
+    except Exception as e:
+        logger.error(f"Error checking running tasks for video {video_id}: {str(e)}")
+        return []
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+
     """
     Lambda関数のメインハンドラー
     
@@ -108,10 +150,18 @@ def start_comment_collection(video_id: str, channel_id: str) -> bool:
         成功した場合True
     """
     try:
-        # 既存のタスクがあるかチェック
+        # 既存のタスクがあるかチェック（DynamoDB）
         existing_task = get_task_status(video_id)
-        if existing_task and existing_task.get('status') == 'running':
-            logger.info(f"Task already running for video {video_id}")
+        if existing_task and existing_task.get('status') in ['running', 'collecting']:
+            logger.info(f"Task already running for video {video_id} (status: {existing_task.get('status')})")
+            return True
+        
+        # ECSクラスターでも重複チェック（追加の安全策）
+        running_tasks = check_running_tasks_for_video(video_id)
+        if running_tasks:
+            logger.warning(f"Found {len(running_tasks)} running tasks for video {video_id} in ECS cluster, but not in DynamoDB")
+            # DynamoDBの状態を修正
+            update_task_status(video_id, channel_id, 'collecting', running_tasks[0])
             return True
         
         # ECS Fargateタスクを起動
@@ -144,8 +194,8 @@ def stop_comment_collection(video_id: str, channel_id: str) -> bool:
         # 現在のタスク状態を取得
         task_status = get_task_status(video_id)
         
-        if not task_status or task_status.get('status') != 'running':
-            logger.info(f"No running task found for video {video_id}")
+        if not task_status or task_status.get('status') not in ['running', 'collecting']:
+            logger.info(f"No running task found for video {video_id} (status: {task_status.get('status') if task_status else 'None'})")
             return True
         
         task_arn = task_status.get('task_arn')

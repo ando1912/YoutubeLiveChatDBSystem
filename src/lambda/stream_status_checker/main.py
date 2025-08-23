@@ -79,7 +79,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 def get_streams_to_check() -> List[Dict[str, Any]]:
     """
-    監視対象のライブ配信を取得（アクティブなチャンネルのみ）
+    監視対象のライブ配信を取得（アクティブなチャンネルのみ、終了済み配信は除外）
     
     Returns:
         監視対象のライブ配信リスト
@@ -100,23 +100,20 @@ def get_streams_to_check() -> List[Dict[str, Any]]:
             logger.info("No active channels found, skipping stream check")
             return []
         
-        # 次に配信を取得
+        # 次に配信を取得（終了済み配信は除外）
         table = dynamodb.Table(LIVESTREAMS_TABLE)
         
-        # 24時間以内に作成された、アクティブなライブ配信を取得
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
-        
+        # アクティブなライブ配信のみを取得（live, upcoming, detected のみ）
+        # ended ステータスの配信は監視対象から除外
         response = table.scan(
-            FilterExpression='created_at > :cutoff AND (#status = :live OR #status = :upcoming OR #status = :detected OR #status = :ended)',
+            FilterExpression='#status IN (:live, :upcoming, :detected)',
             ExpressionAttributeNames={
                 '#status': 'status'
             },
             ExpressionAttributeValues={
-                ':cutoff': cutoff_time.isoformat(),
                 ':live': 'live',
                 ':upcoming': 'upcoming', 
-                ':detected': 'detected',
-                ':ended': 'ended'
+                ':detected': 'detected'
             }
         )
         
@@ -127,7 +124,9 @@ def get_streams_to_check() -> List[Dict[str, Any]]:
             if stream.get('channel_id') in active_channel_ids
         ]
         
-        logger.info(f"Filtered {len(all_streams)} streams to {len(active_streams)} from active channels")
+        logger.info(f"Found {len(all_streams)} active streams (live/upcoming/detected only)")
+        logger.info(f"Filtered to {len(active_streams)} streams from active channels")
+        logger.info("Excluded 'ended' status streams from monitoring to save API quota")
         return active_streams
         
     except ClientError as e:
@@ -357,15 +356,15 @@ def is_task_running(video_id: str) -> bool:
         task_status = response['Item']
         status = task_status.get('status', 'stopped')
         
-        # running状態のタスクがある場合はTrue
-        if status == 'running':
+        # running または collecting 状態のタスクがある場合はTrue
+        if status in ['running', 'collecting']:
             # タスクが実際に実行中かECS APIで確認
             task_arn = task_status.get('task_arn')
             if task_arn and is_ecs_task_actually_running(task_arn):
                 return True
             else:
                 # タスクが実際には停止している場合、ステータスを更新
-                logger.warning(f"Task {task_arn} for {video_id} is marked as running but not actually running")
+                logger.warning(f"Task {task_arn} for {video_id} is marked as {status} but not actually running")
                 update_task_status(video_id, 'stopped')
                 return False
         

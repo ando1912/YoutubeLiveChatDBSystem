@@ -48,6 +48,18 @@ variable "youtube_api_key_parameter_arn" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "ap-northeast-1"
+}
+
+variable "github_repository_url" {
+  description = "GitHub repository URL for CodeBuild source"
+  type        = string
+  default     = "https://github.com/ando1912/YoutubeLiveChatDBSystem.git"
+}
+
 variable "sqs_queue_url" {
   description = "SQS Queue URL"
   type        = string
