@@ -1,0 +1,160 @@
+---
+# Phase 4: フロントエンドデプロイ
+# React.jsアプリケーションをビルド・S3デプロイ
+
+- name: Frontend Deployment
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    project_root: "{{ playbook_dir }}/../.."
+    frontend_path: "{{ project_root }}/src/frontend/youtube-chat-viewer"
+    terraform_path: "{{ project_root }}/terraform/environments/dev"
+    
+  tasks:
+    - name: "🌐 Starting Frontend Deployment"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    Frontend                                  ║
+          ║                   Deployment                                 ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    - name: Check if frontend directory exists
+      stat:
+        path: "{{ frontend_path }}"
+      register: frontend_dir
+      
+    - name: Fail if frontend directory not found
+      fail:
+        msg: "❌ Frontend directory not found: {{ frontend_path }}"
+      when: not frontend_dir.stat.exists
+
+    - name: Check if package.json exists
+      stat:
+        path: "{{ frontend_path }}/package.json"
+      register: package_json
+
+    - name: Install npm dependencies if needed
+      command: npm install
+      args:
+        chdir: "{{ frontend_path }}"
+      when: package_json.stat.exists
+      register: npm_install_result
+
+    - name: "✅ npm dependencies installed"
+      debug:
+        msg: "✅ npm dependencies installed successfully"
+      when: npm_install_result is defined and npm_install_result.rc == 0
+
+    - name: Get Terraform outputs for frontend deployment
+      command: terraform output -json
+      args:
+        chdir: "{{ terraform_path }}"
+      register: terraform_outputs
+      changed_when: false
+
+    - name: Parse Terraform outputs
+      set_fact:
+        s3_bucket_name: "{{ (terraform_outputs.stdout | from_json).frontend_bucket_name.value }}"
+        frontend_url: "{{ (terraform_outputs.stdout | from_json).frontend_url.value }}"
+        api_gateway_url: "{{ (terraform_outputs.stdout | from_json).api_gateway_url.value }}"
+        api_key: "{{ (terraform_outputs.stdout | from_json).api_key.value }}"
+
+    - name: Display deployment information
+      debug:
+        msg: |
+          📦 Frontend Deployment Information:
+          - S3 Bucket: {{ s3_bucket_name }}
+          - Frontend URL: {{ frontend_url }}
+          - API Gateway URL: {{ api_gateway_url }}
+          - API Key: {{ api_key[:10] }}...
+
+    - name: Update frontend environment configuration
+      copy:
+        content: |
+          REACT_APP_API_BASE_URL={{ api_gateway_url }}
+          REACT_APP_API_KEY={{ api_key }}
+          REACT_APP_APP_NAME=YouTube Live Chat Collector
+          REACT_APP_VERSION=1.0.0
+          REACT_APP_ENVIRONMENT={{ env_name }}
+          REACT_APP_DEBUG=true
+          GENERATE_SOURCEMAP=false
+        dest: "{{ frontend_path }}/.env"
+        backup: yes
+        mode: '0600'
+
+    - name: "✅ Environment configuration updated"
+      debug:
+        msg: "✅ Frontend environment configuration updated with current API settings"
+
+    - name: Clean previous frontend build
+      file:
+        path: "{{ frontend_path }}/build"
+        state: absent
+
+    - name: Build React application
+      command: npm run build
+      args:
+        chdir: "{{ frontend_path }}"
+      register: frontend_build_result
+
+    - name: "✅ React application built"
+      debug:
+        msg: "✅ React application built successfully"
+      when: frontend_build_result.rc == 0
+
+    - name: Check build directory
+      find:
+        paths: "{{ frontend_path }}/build"
+        file_type: file
+      register: build_files
+
+    - name: Display build summary
+      debug:
+        msg: |
+          📦 Build Summary:
+          - Build directory: {{ frontend_path }}/build
+          - Total files: {{ build_files.files | length }}
+          - Build size: {{ (build_files.files | map(attribute='size') | sum / 1024) | round(2) }} KB
+
+    - name: Deploy frontend to S3
+      command: >
+        aws s3 sync {{ frontend_path }}/build/ 
+        s3://{{ s3_bucket_name }}/ 
+        --delete 
+        --region {{ aws_region }}
+      register: s3_sync_result
+
+    - name: "✅ Frontend deployed to S3"
+      debug:
+        msg: "✅ Frontend successfully deployed to S3"
+      when: s3_sync_result.rc == 0
+
+    - name: Verify S3 bucket contents
+      command: >
+        aws s3 ls s3://{{ s3_bucket_name }}/ 
+        --recursive 
+        --human-readable 
+        --summarize
+      register: s3_contents
+      changed_when: false
+
+    - name: "✅ Frontend Deployment Completed"
+      debug:
+        msg: |
+          🎉 Frontend Deployment Summary:
+          ✅ React.js Application: Built and deployed to S3
+          
+          🌐 Access Information:
+          - Frontend URL: {{ frontend_url }}
+          - S3 Bucket: {{ s3_bucket_name }}
+          - API Gateway URL: {{ api_gateway_url }}
+          
+          📦 S3 Bucket Contents:
+          {{ s3_contents.stdout }}
+          
+          🚀 Your application is now live at: {{ frontend_url }}

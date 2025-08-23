@@ -1,0 +1,92 @@
+---
+# Phase 2: Lambda関数デプロイ
+# 4つのLambda関数を順次デプロイ
+
+- name: Lambda Functions Deployment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    project_root: "{{ playbook_dir }}/../.."
+    
+  tasks:
+    - name: "📦 Starting Lambda Functions Deployment"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    Lambda Functions                          ║
+          ║                     Deployment                               ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    - name: Deploy RSS Monitor Lambda
+      include_role:
+        name: lambda-deployment
+      vars:
+        lambda_name: "rss-monitor-lambda"
+        lambda_source_dir: "{{ project_root }}/src/lambda/rss_monitor"
+        lambda_environment: "{{ env_name }}"
+
+    - name: "✅ RSS Monitor Lambda deployed"
+      debug:
+        msg: "✅ RSS Monitor Lambda function deployed successfully"
+
+    - name: Deploy Stream Status Checker Lambda
+      include_role:
+        name: lambda-deployment
+      vars:
+        lambda_name: "stream-status-checker-lambda"
+        lambda_source_dir: "{{ project_root }}/src/lambda/stream_status_checker"
+        lambda_environment: "{{ env_name }}"
+
+    - name: "✅ Stream Status Checker Lambda deployed"
+      debug:
+        msg: "✅ Stream Status Checker Lambda function deployed successfully"
+
+    - name: Deploy ECS Task Launcher Lambda
+      include_role:
+        name: lambda-deployment
+      vars:
+        lambda_name: "ecs-task-launcher-lambda"
+        lambda_source_dir: "{{ project_root }}/src/lambda/ecs_task_launcher"
+        lambda_environment: "{{ env_name }}"
+
+    - name: "✅ ECS Task Launcher Lambda deployed"
+      debug:
+        msg: "✅ ECS Task Launcher Lambda function deployed successfully"
+
+    - name: Deploy API Handler Lambda
+      include_role:
+        name: lambda-deployment
+      vars:
+        lambda_name: "api-handler-lambda"
+        lambda_source_dir: "{{ project_root }}/src/lambda/api_handler"
+        lambda_environment: "{{ env_name }}"
+
+    - name: "✅ API Handler Lambda deployed"
+      debug:
+        msg: "✅ API Handler Lambda function deployed successfully"
+
+    - name: Verify Lambda functions deployment
+      command: >
+        aws lambda list-functions 
+        --query 'Functions[?starts_with(FunctionName, `{{ env_name }}-`)].{Name:FunctionName,Runtime:Runtime,LastModified:LastModified}'
+        --output table
+      register: lambda_list
+      changed_when: false
+
+    - name: "✅ Lambda Functions Deployment Completed"
+      debug:
+        msg: |
+          🎉 Lambda Functions Deployment Summary:
+          ✅ RSS Monitor Lambda: Deployed (YouTube RSS monitoring)
+          ✅ Stream Status Checker Lambda: Deployed (Live stream status checking)
+          ✅ ECS Task Launcher Lambda: Deployed (Comment collection task control)
+          ✅ API Handler Lambda: Deployed (REST API endpoints)
+          
+          📊 Total Lambda Functions: 4
+          
+          📋 Deployed Functions:
+          {{ lambda_list.stdout }}

@@ -1,0 +1,71 @@
+---
+# YouTube Live Chat Collector - クイックデプロイ
+# 個別コンポーネントの迅速なデプロイ用
+
+- name: YouTube Live Chat Collector - Quick Deploy
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  
+  vars:
+    # デプロイ対象選択（コマンドライン引数で指定）
+    # ansible-playbook quick-deploy.yml -e "component=lambda"
+    # ansible-playbook quick-deploy.yml -e "component=container"
+    # ansible-playbook quick-deploy.yml -e "component=frontend"
+    # ansible-playbook quick-deploy.yml -e "component=all"
+    component: "{{ component | default('all') }}"
+    
+    # 環境設定
+    env_name: "dev"
+    
+  tasks:
+    - name: "🚀 Quick Deploy - {{ component | upper }}"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║              YouTube Live Chat Collector                     ║
+          ║                   Quick Deploy                               ║
+          ║                Component: {{ component | upper }}            ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    # Lambda関数のみデプロイ
+    - name: Deploy Lambda Functions Only
+      include: "playbooks/02-deploy-lambda.yml"
+      when: component == "lambda" or component == "all"
+
+    # コンテナのみデプロイ
+    - name: Deploy Container Only
+      include: "playbooks/03-deploy-container.yml"
+      when: component == "container" or component == "all"
+
+    # フロントエンドのみデプロイ
+    - name: Deploy Frontend Only
+      include: "playbooks/04-deploy-frontend.yml"
+      when: component == "frontend" or component == "all"
+
+    # 全コンポーネントデプロイ
+    - name: Deploy All Components
+      block:
+        - include: "playbooks/01-pre-checks.yml"
+        - include: "playbooks/02-deploy-lambda.yml"
+        - include: "playbooks/03-deploy-container.yml"
+        - include: "playbooks/04-deploy-frontend.yml"
+        - include: "playbooks/05-post-verification.yml"
+      when: component == "all"
+
+    - name: "✅ Quick Deploy Completed"
+      debug:
+        msg: |
+          ✅ Quick Deploy for {{ component | upper }} completed successfully!
+          
+          💡 Available components:
+          - lambda: Lambda functions only
+          - container: ECS container only
+          - frontend: React.js frontend only
+          - all: Complete system deployment
+          
+          📋 Usage examples:
+          ansible-playbook quick-deploy.yml -e "component=lambda"
+          ansible-playbook quick-deploy.yml -e "component=container"
+          ansible-playbook quick-deploy.yml -e "component=frontend"
+          ansible-playbook quick-deploy.yml -e "component=all"

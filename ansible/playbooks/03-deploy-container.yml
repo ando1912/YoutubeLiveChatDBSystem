@@ -1,0 +1,90 @@
+---
+# Phase 3: ECSコンテナデプロイ
+# Comment Collectorコンテナをビルド・ECRプッシュ
+
+- name: ECS Container Deployment
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  vars:
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    aws_account_id: "209547544773"
+    project_root: "{{ playbook_dir }}/../.."
+    
+  tasks:
+    - name: "🐳 Starting ECS Container Deployment"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    ECS Container                             ║
+          ║                     Deployment                               ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    - name: Check Docker daemon status
+      command: docker info
+      register: docker_info
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if Docker is not running
+      fail:
+        msg: |
+          ❌ Docker daemon is not running.
+          
+          Please start Docker:
+          - On Linux: sudo systemctl start docker
+          - On WSL2: Start Docker Desktop
+          - On macOS: Start Docker Desktop
+      when: docker_info.rc != 0
+
+    - name: Deploy Comment Collector Container
+      include_role:
+        name: container-deployment
+      vars:
+        container_name: "comment-collector"
+        container_source_dir: "{{ project_root }}/src/ecs/comment_collector"
+        ecr_repository_name: "{{ env_name }}-comment-collector"
+        ecr_repository_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ env_name }}-comment-collector"
+
+    - name: Verify ECR repository
+      command: >
+        aws ecr describe-images 
+        --repository-name {{ env_name }}-comment-collector 
+        --query 'imageDetails[0].{Digest:imageDigest,Tags:imageTags,Size:imageSizeInBytes,Pushed:imagePushedAt}'
+        --output table
+      register: ecr_images
+      changed_when: false
+      failed_when: false
+
+    - name: Check ECS cluster status
+      command: >
+        aws ecs describe-clusters 
+        --clusters {{ env_name }}-youtube-comment-collector
+        --query 'clusters[0].{Name:clusterName,Status:status,ActiveServices:activeServicesCount,RunningTasks:runningTasksCount}'
+        --output table
+      register: ecs_cluster
+      changed_when: false
+
+    - name: "✅ ECS Container Deployment Completed"
+      debug:
+        msg: |
+          🎉 ECS Container Deployment Summary:
+          ✅ Comment Collector Container: Built and pushed to ECR
+          
+          📦 Container Details:
+          - Repository: {{ env_name }}-comment-collector
+          - Tag: latest
+          - ECR URI: {{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ env_name }}-comment-collector:latest
+          
+          📋 ECR Repository Status:
+          {{ ecr_images.stdout if ecr_images.rc == 0 else 'Unable to retrieve image details' }}
+          
+          📋 ECS Cluster Status:
+          {{ ecs_cluster.stdout }}
+          
+          💡 To test the container:
+          aws ecs run-task --cluster {{ env_name }}-youtube-comment-collector \
+            --task-definition {{ env_name }}-comment-collector \
+            --launch-type FARGATE

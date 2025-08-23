@@ -1,0 +1,136 @@
+---
+# Phase 1: 事前チェック
+# 必要なツールとインフラの状態を確認
+
+- name: Pre-deployment Checks
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    project_root: "{{ playbook_dir }}/../.."
+    terraform_path: "{{ project_root }}/terraform/environments/dev"
+    
+  tasks:
+    - name: "🔍 Starting Pre-deployment Checks"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                 Pre-deployment Checks                        ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    - name: Check AWS CLI availability
+      command: aws --version
+      register: aws_version
+      changed_when: false
+      failed_when: false
+
+    - name: Check Docker availability
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      failed_when: false
+
+    - name: Check Node.js availability
+      command: node --version
+      register: node_version
+      changed_when: false
+      failed_when: false
+
+    - name: Check npm availability
+      command: npm --version
+      register: npm_version
+      changed_when: false
+      failed_when: false
+
+    - name: Check Terraform state
+      command: terraform show -json
+      args:
+        chdir: "{{ terraform_path }}"
+      register: terraform_state
+      changed_when: false
+      failed_when: false
+
+    - name: Check AWS credentials
+      command: aws sts get-caller-identity
+      register: aws_identity
+      changed_when: false
+      failed_when: false
+
+    - name: Display environment check results
+      debug:
+        msg: |
+          🔍 Environment Check Results:
+          ✅ AWS CLI: {{ aws_version.stdout | default('❌ Not available') }}
+          ✅ Docker: {{ docker_version.stdout | default('❌ Not available') }}
+          ✅ Node.js: {{ node_version.stdout | default('❌ Not available') }}
+          ✅ npm: {{ npm_version.stdout | default('❌ Not available') }}
+          ✅ AWS Identity: {{ (aws_identity.stdout | from_json).Arn | default('❌ Not configured') if aws_identity.rc == 0 else '❌ Not configured' }}
+          ✅ Terraform: {{ 'Infrastructure deployed' if terraform_state.rc == 0 else '❌ Infrastructure not deployed' }}
+
+    - name: Fail if required tools are missing
+      fail:
+        msg: |
+          ❌ Required tools are missing:
+          {% if aws_version.rc != 0 %}  - AWS CLI{% endif %}
+          {% if docker_version.rc != 0 %}  - Docker{% endif %}
+          {% if node_version.rc != 0 %}  - Node.js{% endif %}
+          {% if npm_version.rc != 0 %}  - npm{% endif %}
+          
+          Please install the missing tools before proceeding.
+      when: >
+        aws_version.rc != 0 or
+        docker_version.rc != 0 or
+        node_version.rc != 0 or
+        npm_version.rc != 0
+
+    - name: Fail if AWS credentials are not configured
+      fail:
+        msg: "❌ AWS credentials are not configured. Please run 'aws configure' or set environment variables."
+      when: aws_identity.rc != 0
+
+    - name: Fail if Terraform infrastructure is not deployed
+      fail:
+        msg: |
+          ❌ Terraform infrastructure must be deployed first.
+          
+          Please run the following commands:
+          cd {{ terraform_path }}
+          terraform init
+          terraform plan
+          terraform apply
+      when: terraform_state.rc != 0
+
+    - name: Check project directory structure
+      stat:
+        path: "{{ item }}"
+      register: project_dirs
+      loop:
+        - "{{ project_root }}/src/lambda"
+        - "{{ project_root }}/src/ecs"
+        - "{{ project_root }}/src/frontend"
+        - "{{ project_root }}/ansible/roles"
+
+    - name: Verify project structure
+      fail:
+        msg: "❌ Project directory structure is incomplete. Missing: {{ item.item }}"
+      when: not item.stat.exists
+      loop: "{{ project_dirs.results }}"
+
+    - name: "✅ Pre-deployment Checks Completed"
+      debug:
+        msg: |
+          ✅ All pre-deployment checks passed successfully!
+          
+          📋 Environment Summary:
+          - AWS CLI: Available
+          - Docker: Available  
+          - Node.js: Available
+          - npm: Available
+          - AWS Credentials: Configured
+          - Terraform Infrastructure: Deployed
+          - Project Structure: Complete
+          
+          🚀 Ready to proceed with deployment!

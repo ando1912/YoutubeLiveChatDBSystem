@@ -1,0 +1,86 @@
+---
+# YouTube Live Chat Collector - メイン一括デプロイ
+# 作成日: 2025-08-23
+# 説明: 各工程のプレイブックを順次実行して全システムをデプロイ
+
+- name: YouTube Live Chat Collector - Complete System Deployment
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    # 環境設定
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    
+    # デプロイ制御フラグ
+    deploy_lambda: true
+    deploy_container: true
+    deploy_frontend: true
+    
+    # 各工程のプレイブックパス
+    playbook_dir: "{{ playbook_dir }}/playbooks"
+    
+  tasks:
+    - name: "🚀 YouTube Live Chat Collector - Complete Deployment Started"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║          YouTube Live Chat Collector                         ║
+          ║              Complete System Deployment                      ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║  Environment: {{ env_name }}                                 ║
+          ║  AWS Region: {{ aws_region }}                                ║
+          ║  Deploy Lambda: {{ deploy_lambda }}                          ║
+          ║  Deploy Container: {{ deploy_container }}                    ║
+          ║  Deploy Frontend: {{ deploy_frontend }}                      ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    # ========================================
+    # Phase 1: 事前チェック
+    # ========================================
+    - name: "🔍 Phase 1: Pre-deployment Checks"
+      include: "{{ playbook_dir }}/01-pre-checks.yml"
+
+    # ========================================
+    # Phase 2: Lambda関数デプロイ
+    # ========================================
+    - name: "📦 Phase 2: Lambda Functions Deployment"
+      include: "{{ playbook_dir }}/02-deploy-lambda.yml"
+      when: deploy_lambda
+
+    # ========================================
+    # Phase 3: ECSコンテナデプロイ
+    # ========================================
+    - name: "🐳 Phase 3: ECS Container Deployment"
+      include: "{{ playbook_dir }}/03-deploy-container.yml"
+      when: deploy_container
+
+    # ========================================
+    # Phase 4: フロントエンドデプロイ
+    # ========================================
+    - name: "🌐 Phase 4: Frontend Deployment"
+      include: "{{ playbook_dir }}/04-deploy-frontend.yml"
+      when: deploy_frontend
+
+    # ========================================
+    # Phase 5: デプロイ後検証
+    # ========================================
+    - name: "🎯 Phase 5: Post-deployment Verification"
+      include: "{{ playbook_dir }}/05-post-verification.yml"
+
+    - name: "🎉 Complete Deployment Summary"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║          🎉 DEPLOYMENT COMPLETED SUCCESSFULLY! 🎉           ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║                                                              ║
+          ║  📦 All components have been deployed successfully!          ║
+          ║                                                              ║
+          ║  🚀 Next Steps:                                              ║
+          ║  1. Access the frontend URL to verify the dashboard         ║
+          ║  2. Add YouTube channels for monitoring                      ║
+          ║  3. Monitor CloudWatch logs for system health               ║
+          ║                                                              ║
+          ╚══════════════════════════════════════════════════════════════╝

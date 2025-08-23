@@ -1,0 +1,248 @@
+---
+# Phase 5: デプロイ後検証
+# システム全体の動作確認とヘルスチェック
+
+- name: Post-deployment Verification
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    project_root: "{{ playbook_dir }}/../.."
+    terraform_path: "{{ project_root }}/terraform/environments/dev"
+    
+  tasks:
+    - name: "🎯 Starting Post-deployment Verification"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                 Post-deployment Verification                 ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+    - name: Get Terraform outputs for verification
+      command: terraform output -json
+      args:
+        chdir: "{{ terraform_path }}"
+      register: terraform_outputs
+      changed_when: false
+
+    - name: Parse Terraform outputs
+      set_fact:
+        s3_bucket_name: "{{ (terraform_outputs.stdout | from_json).frontend_bucket_name.value }}"
+        frontend_url: "{{ (terraform_outputs.stdout | from_json).frontend_url.value }}"
+        api_gateway_url: "{{ (terraform_outputs.stdout | from_json).api_gateway_url.value }}"
+        api_key: "{{ (terraform_outputs.stdout | from_json).api_key.value }}"
+
+    # Lambda関数の検証
+    - name: Verify Lambda functions
+      command: >
+        aws lambda get-function 
+        --function-name {{ env_name }}-{{ item }}-lambda
+        --query 'Configuration.{Name:FunctionName,State:State,LastModified:LastModified,Runtime:Runtime}'
+        --output table
+      register: lambda_status
+      changed_when: false
+      failed_when: false
+      loop:
+        - "rss-monitor"
+        - "stream-status-checker"
+        - "ecs-task-launcher"
+        - "api-handler"
+
+    - name: Display Lambda functions status
+      debug:
+        msg: |
+          📦 Lambda Functions Status:
+          {% for result in lambda_status.results %}
+          {{ result.item }}: {{ 'Active' if result.rc == 0 else 'Error' }}
+          {% endfor %}
+
+    # ECR リポジトリの検証
+    - name: Verify ECR repository
+      command: >
+        aws ecr describe-repositories 
+        --repository-names {{ env_name }}-comment-collector
+        --query 'repositories[0].{Name:repositoryName,URI:repositoryUri,CreatedAt:createdAt}'
+        --output table
+      register: ecr_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check ECR images
+      command: >
+        aws ecr list-images 
+        --repository-name {{ env_name }}-comment-collector
+        --query 'imageIds[?imageTag==`latest`]'
+      register: ecr_images
+      changed_when: false
+      failed_when: false
+
+    - name: Display ECR status
+      debug:
+        msg: |
+          🐳 ECR Repository Status:
+          Repository: {{ 'Available' if ecr_status.rc == 0 else 'Error' }}
+          Latest Image: {{ 'Available' if (ecr_images.stdout | from_json) | length > 0 else 'Not found' }}
+
+    # API Gateway の検証
+    - name: Test API Gateway connectivity
+      uri:
+        url: "{{ api_gateway_url }}/channels"
+        method: GET
+        headers:
+          x-api-key: "{{ api_key }}"
+        status_code: [200, 404]  # 404も正常（データがない場合）
+      register: api_test_result
+      failed_when: false
+
+    - name: Test API Gateway health endpoint
+      uri:
+        url: "{{ api_gateway_url }}/health"
+        method: GET
+        headers:
+          x-api-key: "{{ api_key }}"
+        status_code: [200, 404]
+      register: health_test_result
+      failed_when: false
+
+    - name: Display API Gateway status
+      debug:
+        msg: |
+          🌐 API Gateway Status:
+          Channels Endpoint: {{ 'OK' if api_test_result.status == 200 else 'Check required (' + (api_test_result.status | string) + ')' }}
+          Health Endpoint: {{ 'OK' if health_test_result.status == 200 else 'Check required (' + (health_test_result.status | string) + ')' }}
+
+    # フロントエンドの検証
+    - name: Test frontend accessibility
+      uri:
+        url: "{{ frontend_url }}"
+        method: GET
+        status_code: 200
+      register: frontend_test_result
+      failed_when: false
+
+    - name: Display frontend status
+      debug:
+        msg: |
+          🌐 Frontend Status:
+          Website Access: {{ 'OK' if frontend_test_result.status == 200 else 'Error (' + (frontend_test_result.status | string) + ')' }}
+
+    # DynamoDB テーブルの検証
+    - name: Verify DynamoDB tables
+      command: >
+        aws dynamodb describe-table 
+        --table-name {{ env_name }}-{{ item }}
+        --query 'Table.{Name:TableName,Status:TableStatus,ItemCount:ItemCount}'
+        --output table
+      register: dynamodb_status
+      changed_when: false
+      failed_when: false
+      loop:
+        - "Channels"
+        - "LiveStreams"
+        - "Comments"
+        - "TaskStatus"
+
+    - name: Display DynamoDB status
+      debug:
+        msg: |
+          🗄️ DynamoDB Tables Status:
+          {% for result in dynamodb_status.results %}
+          {{ result.item }}: {{ 'Active' if result.rc == 0 else 'Error' }}
+          {% endfor %}
+
+    # EventBridge ルールの検証
+    - name: Verify EventBridge rules
+      command: >
+        aws events list-rules 
+        --name-prefix {{ env_name }}-
+        --query 'Rules[].{Name:Name,State:State,ScheduleExpression:ScheduleExpression}'
+        --output table
+      register: eventbridge_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display EventBridge status
+      debug:
+        msg: |
+          ⏰ EventBridge Rules Status:
+          {{ eventbridge_status.stdout if eventbridge_status.rc == 0 else 'Unable to retrieve rules' }}
+
+    # システム全体のヘルスチェック
+    - name: Generate system health report
+      set_fact:
+        health_report:
+          lambda_functions: "{{ lambda_status.results | selectattr('rc', 'equalto', 0) | list | length }}/4"
+          ecr_repository: "{{ 'OK' if ecr_status.rc == 0 else 'Error' }}"
+          ecr_images: "{{ 'OK' if (ecr_images.stdout | from_json) | length > 0 else 'No images' }}"
+          api_gateway: "{{ 'OK' if api_test_result.status == 200 else 'Check required' }}"
+          frontend: "{{ 'OK' if frontend_test_result.status == 200 else 'Error' }}"
+          dynamodb_tables: "{{ dynamodb_status.results | selectattr('rc', 'equalto', 0) | list | length }}/4"
+
+    - name: Save deployment verification report
+      copy:
+        content: |
+          # YouTube Live Chat Collector - Deployment Verification Report
+          # Generated: {{ ansible_date_time.iso8601 }}
+          
+          ## Environment Information
+          Environment: {{ env_name }}
+          AWS Region: {{ aws_region }}
+          
+          ## System Health Status
+          Lambda Functions: {{ health_report.lambda_functions }} Active
+          ECR Repository: {{ health_report.ecr_repository }}
+          ECR Images: {{ health_report.ecr_images }}
+          API Gateway: {{ health_report.api_gateway }}
+          Frontend: {{ health_report.frontend }}
+          DynamoDB Tables: {{ health_report.dynamodb_tables }} Active
+          
+          ## Access Information
+          Frontend URL: {{ frontend_url }}
+          API Gateway URL: {{ api_gateway_url }}
+          S3 Bucket: {{ s3_bucket_name }}
+          
+          ## Test Results
+          API Channels Endpoint: HTTP {{ api_test_result.status | default('N/A') }}
+          API Health Endpoint: HTTP {{ health_test_result.status | default('N/A') }}
+          Frontend Access: HTTP {{ frontend_test_result.status | default('N/A') }}
+          
+          ## Manual Verification Commands
+          # Test API directly
+          curl -H "x-api-key: {{ api_key }}" "{{ api_gateway_url }}/channels"
+          
+          # Check Lambda logs
+          aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/{{ env_name }}-"
+          
+          # Check ECS cluster
+          aws ecs describe-clusters --clusters {{ env_name }}-youtube-comment-collector
+          
+          # Check DynamoDB tables
+          aws dynamodb list-tables --query 'TableNames[?starts_with(@, `{{ env_name }}-`)]'
+        dest: "{{ project_root }}/deployment-verification-{{ ansible_date_time.epoch }}.md"
+        mode: '0600'
+
+    - name: "✅ Post-deployment Verification Completed"
+      debug:
+        msg: |
+          🎯 System Health Summary:
+          ✅ Lambda Functions: {{ health_report.lambda_functions }} Active
+          ✅ ECR Repository: {{ health_report.ecr_repository }}
+          ✅ ECR Images: {{ health_report.ecr_images }}
+          ✅ API Gateway: {{ health_report.api_gateway }}
+          ✅ Frontend: {{ health_report.frontend }}
+          ✅ DynamoDB Tables: {{ health_report.dynamodb_tables }} Active
+          
+          📋 Verification report saved to:
+          {{ project_root }}/deployment-verification-{{ ansible_date_time.epoch }}.md
+          
+          🌐 Access your application:
+          {{ frontend_url }}
+          
+          {% if health_report.lambda_functions != '4/4' or health_report.api_gateway != 'OK' or health_report.frontend != 'OK' or health_report.dynamodb_tables != '4/4' %}
+          ⚠️  Some components may need attention. Please check the detailed report.
+          {% else %}
+          🎉 All systems are operational!
+          {% endif %}
