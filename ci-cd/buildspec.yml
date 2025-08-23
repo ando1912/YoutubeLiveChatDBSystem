@@ -1,0 +1,52 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: ap-northeast-1
+    AWS_ACCOUNT_ID: 209547544773
+    IMAGE_REPO_NAME: dev-comment-collector
+
+phases:
+  pre_build:
+    commands:
+      - echo "=== Pre-build phase started on $(date) ==="
+      - echo "Logging in to Amazon ECR..."
+      - aws --version
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - echo "Repository URI is $REPOSITORY_URI"
+      - echo "Image tag is $IMAGE_TAG"
+      
+  build:
+    commands:
+      - echo "=== Build phase started on $(date) ==="
+      - echo "Building the Docker image for comment collector..."
+      - cd src/ecs/comment_collector
+      - echo "Current directory: $(pwd)"
+      - echo "Files in directory:"
+      - ls -la
+      - echo "Building Docker image..."
+      - docker build -t $IMAGE_REPO_NAME .
+      - echo "Tagging Docker image..."
+      - docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$IMAGE_TAG
+      - docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest
+      
+  post_build:
+    commands:
+      - echo "=== Post-build phase started on $(date) ==="
+      - echo "Pushing the Docker images..."
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - docker push $REPOSITORY_URI:latest
+      - echo "Docker images pushed successfully"
+      - echo "Writing image definitions file..."
+      - printf '[{"name":"comment-collector","imageUri":"%s"}]' $REPOSITORY_URI:latest > imagedefinitions.json
+      - echo "Image definitions file content:"
+      - cat imagedefinitions.json
+      - echo "=== Build completed successfully on $(date) ==="
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  name: comment-collector-build-$(date +%Y-%m-%d)

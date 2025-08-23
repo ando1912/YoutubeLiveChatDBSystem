@@ -246,6 +246,122 @@ resource "aws_ecr_lifecycle_policy" "comment_collector" {
   })
 }
 
+# CodeBuild Service Role
+resource "aws_iam_role" "codebuild_service_role" {
+  name = "${var.environment}-codebuild-service-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "codebuild.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.environment}-codebuild-service-role"
+  }
+}
+
+# CodeBuild Service Role Policy
+resource "aws_iam_role_policy" "codebuild_service_policy" {
+  name = "${var.environment}-codebuild-service-policy"
+  role = aws_iam_role.codebuild_service_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:GetAuthorizationToken",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# CodeBuild Project
+resource "aws_codebuild_project" "comment_collector" {
+  name         = "${var.environment}-comment-collector-build"
+  description  = "Build and push comment collector container to ECR"
+  service_role = aws_iam_role.codebuild_service_role.arn
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                      = "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+    type                       = "LINUX_CONTAINER"
+    image_pull_credentials_type = "CODEBUILD"
+    privileged_mode            = true  # Docker操作に必要
+
+    environment_variable {
+      name  = "AWS_DEFAULT_REGION"
+      value = var.aws_region
+    }
+
+    environment_variable {
+      name  = "AWS_ACCOUNT_ID"
+      value = data.aws_caller_identity.current.account_id
+    }
+
+    environment_variable {
+      name  = "IMAGE_REPO_NAME"
+      value = aws_ecr_repository.comment_collector.name
+    }
+
+    environment_variable {
+      name  = "IMAGE_TAG"
+      value = "latest"
+    }
+  }
+
+  source {
+    type            = "GITHUB"
+    location        = var.github_repository_url
+    git_clone_depth = 1
+    buildspec       = "ci-cd/buildspec.yml"
+
+    git_submodules_config {
+      fetch_submodules = false
+    }
+  }
+
+  source_version = "main"
+
+  tags = {
+    Name = "${var.environment}-comment-collector-build"
+  }
+}
+
+# Data source for current AWS account
+data "aws_caller_identity" "current" {}
+
 # ECS Task Execution Role
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "${var.environment}-ecs-task-execution-role"
