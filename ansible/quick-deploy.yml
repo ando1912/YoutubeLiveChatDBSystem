@@ -27,6 +27,16 @@
           ║                   Quick Deploy                               ║
           ║                Component: {{ component | upper }}            ║
           ╚══════════════════════════════════════════════════════════════╝
+          
+          📋 Available Components:
+          - lambda: Lambda Functions (4 functions)
+          - container: ECS Container (CodeBuild → ECR)
+          - frontend: React Frontend (Build → S3)
+          - all: Complete system deployment
+          
+          🐳 Container deployment uses CodeBuild integration
+          ⚡ No local Docker required
+          🚀 Automated build and ECR push
 
     # Lambda関数のみデプロイ
     - name: Deploy Lambda Functions Only

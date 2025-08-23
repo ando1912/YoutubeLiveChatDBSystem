@@ -21,6 +21,30 @@
     # 各工程のプレイブックパス
     playbook_dir: "{{ playbook_dir }}/playbooks"
     
+---
+# YouTube Live Chat Collector - メイン一括デプロイ
+# 作成日: 2025-08-23
+# 更新日: 2025-08-23 (CodeBuild統合対応)
+# 説明: 各工程のプレイブックを順次実行して全システムをデプロイ
+
+- name: YouTube Live Chat Collector - Complete System Deployment
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    # 環境設定
+    env_name: "dev"
+    aws_region: "ap-northeast-1"
+    
+    # デプロイ制御フラグ
+    deploy_lambda: true
+    deploy_container: true
+    deploy_frontend: true
+    
+    # 各工程のプレイブックパス
+    playbook_dir: "{{ playbook_dir }}/playbooks"
+    
   tasks:
     - name: "🚀 YouTube Live Chat Collector - Complete Deployment Started"
       debug:
@@ -28,6 +52,21 @@
           ╔══════════════════════════════════════════════════════════════╗
           ║          YouTube Live Chat Collector                         ║
           ║              Complete System Deployment                      ║
+          ║                (CodeBuild Integration)                       ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          📋 Deployment Plan:
+          ✅ Phase 1: Pre-checks (AWS CLI, Terraform state)
+          ✅ Phase 2: Lambda Functions (4 functions)
+          ✅ Phase 3: Container Deployment (CodeBuild → ECR)
+          ✅ Phase 4: Frontend Deployment (React → S3)
+          ✅ Phase 5: Post-verification (Integration tests)
+          
+          ⏱️  Estimated Time: 5-8 minutes
+          🏗️  Infrastructure: 113 AWS resources
+          🐳 Container Build: CodeBuild (1-2 minutes)
+          
+          Starting deployment...
           ╠══════════════════════════════════════════════════════════════╣
           ║  Environment: {{ env_name }}                                 ║
           ║  AWS Region: {{ aws_region }}                                ║

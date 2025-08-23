@@ -1,90 +1,160 @@
 ---
-# Phase 3: ECSコンテナデプロイ
-# Comment Collectorコンテナをビルド・ECRプッシュ
-
-- name: ECS Container Deployment
+- name: ECS Container Deployment via CodeBuild
   hosts: localhost
-  connection: local
-  gather_facts: true
-  
+  gather_facts: false
   vars:
-    env_name: "dev"
-    aws_region: "ap-northeast-1"
-    aws_account_id: "209547544773"
-    project_root: "{{ playbook_dir }}/../.."
+    env_name: dev
+    codebuild_project_name: "{{ env_name }}-comment-collector-build"
+    ecr_repository_name: "{{ env_name }}-comment-collector"
+    aws_region: ap-northeast-1
     
   tasks:
-    - name: "🐳 Starting ECS Container Deployment"
+    - name: 🐳 Starting ECS Container Deployment
       debug:
         msg: |
           ╔══════════════════════════════════════════════════════════════╗
           ║                    ECS Container                             ║
           ║                     Deployment                               ║
+          ║                   (CodeBuild Integration)                    ║
           ╚══════════════════════════════════════════════════════════════╝
 
-    - name: Check Docker daemon status
-      command: docker info
-      register: docker_info
+    - name: Check CodeBuild project exists
+      shell: aws codebuild batch-get-projects --names {{ codebuild_project_name }} --region {{ aws_region }}
+      register: codebuild_check
       changed_when: false
-      failed_when: false
 
-    - name: Fail if Docker is not running
+    - name: Parse CodeBuild project info
+      set_fact:
+        codebuild_projects: "{{ (codebuild_check.stdout | from_json).projects }}"
+
+    - name: Verify CodeBuild project exists
+      fail:
+        msg: "❌ CodeBuild project {{ codebuild_project_name }} not found"
+      when: codebuild_projects | length == 0
+
+    - name: Display CodeBuild project info
+      debug:
+        msg: |
+          ✅ CodeBuild Project: {{ codebuild_project_name }}
+          📍 Source: {{ codebuild_projects[0].source.location }}
+          🔧 Buildspec: {{ codebuild_projects[0].source.buildspec }}
+          🏗️ Environment: {{ codebuild_projects[0].environment.image }}
+
+    - name: Start CodeBuild for container deployment
+      shell: aws codebuild start-build --project-name {{ codebuild_project_name }} --source-version main --region {{ aws_region }}
+      register: build_start
+      changed_when: true
+
+    - name: Parse build start result
+      set_fact:
+        build_info: "{{ (build_start.stdout | from_json).build }}"
+
+    - name: Display build started
+      debug:
+        msg: |
+          🚀 CodeBuild Started
+          📋 Build ID: {{ build_info.id }}
+          ⏰ Start Time: {{ build_info.startTime }}
+          📊 Status: {{ build_info.buildStatus }}
+          🔗 Build URL: https://console.aws.amazon.com/codesuite/codebuild/projects/{{ codebuild_project_name }}/build/{{ build_info.id }}/log
+
+    - name: Wait for build completion
+      shell: aws codebuild batch-get-builds --ids {{ build_info.id }} --region {{ aws_region }}
+      register: build_status_check
+      until: (build_status_check.stdout | from_json).builds[0].buildStatus in ['SUCCEEDED', 'FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT']
+      retries: 30
+      delay: 30
+      changed_when: false
+
+    - name: Parse final build status
+      set_fact:
+        final_build: "{{ (build_status_check.stdout | from_json).builds[0] }}"
+
+    - name: Calculate build duration
+      set_fact:
+        build_duration_seconds: "{{ (final_build.endTime | int) - (final_build.startTime | int) }}"
+        build_duration_minutes: "{{ ((final_build.endTime | int) - (final_build.startTime | int)) // 60 }}"
+      when: final_build.endTime is defined
+
+    - name: Display build progress
+      debug:
+        msg: |
+          📊 Build Status: {{ final_build.buildStatus }}
+          ⏱️  Duration: {{ build_duration_minutes | default('In Progress') }} minutes ({{ build_duration_seconds | default('N/A') }} seconds)
+          📝 Current Phase: {{ final_build.currentPhase | default('Unknown') }}
+          🔍 Build Number: {{ final_build.buildNumber | default('N/A') }}
+
+    - name: Verify build success
       fail:
         msg: |
-          ❌ Docker daemon is not running.
+          ❌ CodeBuild Failed
+          Status: {{ final_build.buildStatus }}
+          Phase: {{ final_build.currentPhase | default('Unknown') }}
           
-          Please start Docker:
-          - On Linux: sudo systemctl start docker
-          - On WSL2: Start Docker Desktop
-          - On macOS: Start Docker Desktop
-      when: docker_info.rc != 0
+          🔍 Check logs at:
+          https://console.aws.amazon.com/codesuite/codebuild/projects/{{ codebuild_project_name }}/build/{{ build_info.id }}/log
+          
+          💡 Common issues:
+          - GitHub repository access
+          - buildspec.yml syntax
+          - ECR permissions
+          - Docker build errors
+      when: final_build.buildStatus != 'SUCCEEDED'
 
-    - name: Deploy Comment Collector Container
-      include_role:
-        name: container-deployment
-      vars:
-        container_name: "comment-collector"
-        container_source_dir: "{{ project_root }}/src/ecs/comment_collector"
-        ecr_repository_name: "{{ env_name }}-comment-collector"
-        ecr_repository_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ env_name }}-comment-collector"
-
-    - name: Verify ECR repository
-      command: >
-        aws ecr describe-images 
-        --repository-name {{ env_name }}-comment-collector 
-        --query 'imageDetails[0].{Digest:imageDigest,Tags:imageTags,Size:imageSizeInBytes,Pushed:imagePushedAt}'
-        --output table
-      register: ecr_images
-      changed_when: false
-      failed_when: false
-
-    - name: Check ECS cluster status
-      command: >
-        aws ecs describe-clusters 
-        --clusters {{ env_name }}-youtube-comment-collector
-        --query 'clusters[0].{Name:clusterName,Status:status,ActiveServices:activeServicesCount,RunningTasks:runningTasksCount}'
-        --output table
-      register: ecs_cluster
+    - name: Check ECR images after build
+      shell: aws ecr list-images --repository-name {{ ecr_repository_name }} --region {{ aws_region }}
+      register: ecr_images_check
       changed_when: false
 
-    - name: "✅ ECS Container Deployment Completed"
+    - name: Parse ECR images
+      set_fact:
+        ecr_images: "{{ (ecr_images_check.stdout | from_json).imageIds }}"
+
+    - name: Get ECR repository URI
+      shell: aws ecr describe-repositories --repository-names {{ ecr_repository_name }} --region {{ aws_region }}
+      register: ecr_repo_info
+      changed_when: false
+
+    - name: Parse ECR repository info
+      set_fact:
+        ecr_repository_uri: "{{ (ecr_repo_info.stdout | from_json).repositories[0].repositoryUri }}"
+
+    - name: Display ECR verification
+      debug:
+        msg: |
+          ✅ ECR Repository: {{ ecr_repository_name }}
+          📦 Images Count: {{ ecr_images | length }}
+          🏷️  Available Tags: {{ ecr_images | selectattr('imageTag', 'defined') | map(attribute='imageTag') | list }}
+          📍 Repository URI: {{ ecr_repository_uri }}
+
+    - name: ✅ Container Deployment Completed
       debug:
         msg: |
           🎉 ECS Container Deployment Summary:
-          ✅ Comment Collector Container: Built and pushed to ECR
+          ✅ CodeBuild Status: {{ final_build.buildStatus }}
+          ✅ ECR Images: {{ ecr_images | length }} available
+          ✅ Build Duration: {{ build_duration_minutes | default('N/A') }} minutes
+          ✅ Build Number: {{ final_build.buildNumber | default('N/A') }}
           
-          📦 Container Details:
-          - Repository: {{ env_name }}-comment-collector
-          - Tag: latest
-          - ECR URI: {{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ env_name }}-comment-collector:latest
+          📊 Container Details:
+          -----------------------------------------------------------------------------------
+          Repository: {{ ecr_repository_name }}
+          Latest Image: {{ ecr_repository_uri }}:latest
+          Build ID: {{ build_info.id }}
+          Commit Hash: {{ final_build.resolvedSourceVersion | default('N/A') }}
           
-          📋 ECR Repository Status:
-          {{ ecr_images.stdout if ecr_images.rc == 0 else 'Unable to retrieve image details' }}
+          🔗 Useful Links:
+          CodeBuild Console: https://console.aws.amazon.com/codesuite/codebuild/projects/{{ codebuild_project_name }}
+          ECR Console: https://console.aws.amazon.com/ecr/repositories/{{ ecr_repository_name }}
+          ECS Console: https://console.aws.amazon.com/ecs/home#/clusters/{{ env_name }}-youtube-comment-collector
+          Build Logs: https://console.aws.amazon.com/cloudwatch/home?region={{ aws_region }}#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252F{{ codebuild_project_name }}
           
-          📋 ECS Cluster Status:
-          {{ ecs_cluster.stdout }}
+          🚀 Next Steps:
+          The container image is now available in ECR and ready for ECS deployment.
+          ECS tasks will automatically use the latest image when started.
           
-          💡 To test the container:
+          💡 Manual ECS Task Launch (if needed):
           aws ecs run-task --cluster {{ env_name }}-youtube-comment-collector \
             --task-definition {{ env_name }}-comment-collector \
-            --launch-type FARGATE
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=ENABLED}"
